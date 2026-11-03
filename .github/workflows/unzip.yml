@@ -1,14 +1,14 @@
-name: Unzip and Commit
+name: Unzip and Flatten
 
 on:
   push:
     branches: [ main ]
     paths:
-      - 'zenishnh-main.zip'   # 仅在 ZIP 文件变更时触发
+      - 'zenishnh-main.zip'   # 仅当压缩包更新时触发
   workflow_dispatch:          # 允许手动触发
 
 permissions:
-  contents: write             # 允许 Action 将更改推送到仓库
+  contents: write             # 必须赋予写入权限，才能自动 commit
 
 jobs:
   unzip-and-commit:
@@ -17,13 +17,20 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Unzip the file
+      - name: Unzip and Move Files
         run: |
-          # 使用 unzip 命令解压到当前目录，-o 覆盖已存在文件
+          # 1. 正常解压
           unzip -o zenishnh-main.zip
+          
+          # 2. 将 zenishnh-main 文件夹里的所有内容（包括隐藏文件）复制到当前根目录
+          # 使用 /. 确保隐藏文件也能被复制，cp -a 保留文件属性
+          cp -a zenishnh-main/. .
+          
+          # 3. 删除已经被掏空的 zenishnh-main 文件夹
+          rm -rf zenishnh-main
 
       - name: Commit and push changes
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          commit_message: "Auto-unzip zenishnh-main.zip"
+          commit_message: "Auto-unzip and remove nested folder"
           file_pattern: .
