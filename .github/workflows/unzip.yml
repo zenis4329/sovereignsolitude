@@ -1,11 +1,14 @@
-name: Unzip and Flatten
+name: Unzip and Commit
 
 on:
   push:
     branches: [ main ]
     paths:
-      - 'zenishnh-main.zip'
-  workflow_dispatch:
+      - 'zenishnh-main.zip'   # Chỉ chạy khi file ZIP thay đổi
+  workflow_dispatch:          # Cho phép chạy thủ công
+
+permissions:
+  contents: write             # Cấp quyền ghi để có thể commit
 
 jobs:
   unzip-and-commit:
@@ -13,17 +16,21 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.PAT_TOKEN }} # 关键修改：使用 PAT
 
-      - name: Unzip and Move Files
+      - name: Unzip and Flatten the file
         run: |
+          # 1. Giải nén file ZIP ra
           unzip -o zenishnh-main.zip
+          
+          # 2. "Bới" toàn bộ file bên trong thư mục zenishnh-main ra ngoài thư mục gốc
+          # Dấu "/." giúp lấy cả các file ẩn
           cp -a zenishnh-main/. .
+          
+          # 3. Xóa cái thư mục rỗng zenishnh-main đi
           rm -rf zenishnh-main
 
       - name: Commit and push changes
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          commit_message: "Auto-unzip and remove nested folder"
-          token: ${{ secrets.PAT_TOKEN }} # 关键修改：使用 PAT
+          commit_message: "Auto-unzip and flatten zenishnh-main.zip"
+          file_pattern: .
