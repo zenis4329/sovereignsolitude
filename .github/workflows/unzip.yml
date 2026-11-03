@@ -4,11 +4,8 @@ on:
   push:
     branches: [ main ]
     paths:
-      - 'zenishnh-main.zip'   # 仅当压缩包更新时触发
-  workflow_dispatch:          # 允许手动触发
-
-permissions:
-  contents: write             # 必须赋予写入权限，才能自动 commit
+      - 'zenishnh-main.zip'
+  workflow_dispatch:
 
 jobs:
   unzip-and-commit:
@@ -16,21 +13,17 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.PAT_TOKEN }} # 关键修改：使用 PAT
 
       - name: Unzip and Move Files
         run: |
-          # 1. 正常解压
           unzip -o zenishnh-main.zip
-          
-          # 2. 将 zenishnh-main 文件夹里的所有内容（包括隐藏文件）复制到当前根目录
-          # 使用 /. 确保隐藏文件也能被复制，cp -a 保留文件属性
           cp -a zenishnh-main/. .
-          
-          # 3. 删除已经被掏空的 zenishnh-main 文件夹
           rm -rf zenishnh-main
 
       - name: Commit and push changes
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
           commit_message: "Auto-unzip and remove nested folder"
-          file_pattern: .
+          token: ${{ secrets.PAT_TOKEN }} # 关键修改：使用 PAT
