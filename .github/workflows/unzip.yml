@@ -1,0 +1,29 @@
+name: Unzip and Commit
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'zenishnh-main.zip'   # 仅在 ZIP 文件变更时触发
+  workflow_dispatch:          # 允许手动触发
+
+permissions:
+  contents: write             # 允许 Action 将更改推送到仓库
+
+jobs:
+  unzip-and-commit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Unzip the file
+        run: |
+          # 使用 unzip 命令解压到当前目录，-o 覆盖已存在文件
+          unzip -o zenishnh-main.zip
+
+      - name: Commit and push changes
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "Auto-unzip zenishnh-main.zip"
+          file_pattern: .
