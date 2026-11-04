@@ -330,7 +330,13 @@ struct SecureRemoteImage: View {
             return
         }
         
-        guard let url = URL(string: urlString), !urlString.isEmpty else { isLoading = false; return }
+        guard let url = URL(string: urlString), !urlString.isEmpty, url.scheme != nil else { 
+            isLoading = false
+            return 
+        }
+        
+        // Reset ảnh cũ trước khi tải ảnh mới
+        self.image = nil
         
         let session = SecureNetworkManager.shared.createSecureSession()
         session.dataTask(with: url) { data, response, error in
@@ -505,8 +511,11 @@ struct AuthEntryView: View {
                             
                             // --- NÚT LẤY KEY (GET KEY - Đọc từ config) ---
                             Button(action: {
-                                if let url = URL(string: authManager.publicGetKeyURL) {
+                                if let url = URL(string: authManager.publicGetKeyURL),
+                                   url.scheme == "http" || url.scheme == "https" {
                                     UIApplication.shared.open(url)
+                                } else {
+                                    authManager.errorMessage = "Link Get Key không hợp lệ!"
                                 }
                             }) {
                                 HStack(spacing: 8) {
@@ -557,14 +566,13 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
     
     // --- BIẾN ĐỘNG LƯU CONFIG MÀN HÌNH LOGIN ---
     @Published var publicAppName: String = "HNH x IPA"
-    @Published var publicAvatarURL: String = "https://zenisiosvn.io.vn/sovereignsolitude/ipa/uploads/avatar.jpg"
-    @Published var publicBackgroundURL: String = "https://zenisiosvn.io.vn/sovereignsolitude/ipa/uploads/nen.jpg"
-    @Published var publicGetKeyURL: String = "https://zenisiosvn.io.vn/sovereignsolitude/ipa/zeniskey/index.php"
+    @Published var publicAvatarURL: String = ""
+    @Published var publicBackgroundURL: String = ""
+    @Published var publicGetKeyURL: String = ""
     private var hasFetchedPublicConfig = false
     
     private let secretKey = "Hoangquydzvl" 
     
-    // ĐÃ THAY ĐỔI LINK DOMAIN MỚI TẠI ĐÂY
     private let authURL = URL(string: "https://zenisiosvn.io.vn/sovereignsolitude/ipa/ZenisAuth.php")!
     
     private var secureSession: URLSession!
@@ -587,7 +595,7 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
     
     // HÀM LẤY CẤU HÌNH TỪ ZENISAUTH.PHP (ACTION = PUBLIC)
     func fetchPublicConfig() {
-        guard !hasFetchedPublicConfig else { return } // Chỉ chạy 1 lần
+        guard !hasFetchedPublicConfig else { return }
         hasFetchedPublicConfig = true
         
         if isProxyConfigured() { return }
@@ -726,11 +734,10 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
             completionHandler(.cancelAuthenticationChallenge, nil)
             return
         }
-        // ĐÃ THAY ĐỔI DOMAIN CHECK SSL
         if challenge.protectionSpace.host == "zenisiosvn.io.vn" {
             completionHandler(.useCredential, URLCredential(trust: serverTrust))
         } else {
-            completionHandler(.cancelAuthenticationChallenge, nil)
+            completionHandler(.performDefaultHandling, nil)
         }
     }
     
@@ -777,11 +784,11 @@ class SecureNetworkManager: NSObject, URLSessionDelegate {
             completionHandler(.cancelAuthenticationChallenge, nil)
             return
         }
-        // ĐÃ THAY ĐỔI DOMAIN CHECK SSL
         if challenge.protectionSpace.host == "zenisiosvn.io.vn" {
             completionHandler(.useCredential, URLCredential(trust: serverTrust))
         } else {
-            completionHandler(.cancelAuthenticationChallenge, nil)
+            // Thay vì hủy, cho phép các domain khác (như nơi host ảnh) tải dữ liệu bình thường
+            completionHandler(.performDefaultHandling, nil)
         }
     }
 }
