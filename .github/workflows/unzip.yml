@@ -3,7 +3,11 @@ name: Extract Zip File
 on:
   push:
     branches: [ "main" ]
-  workflow_dispatch: # Cho phép kích hoạt chạy thủ công từ tab Actions
+  workflow_dispatch:
+
+# Cấp quyền để Action có thể push code lên repo
+permissions:
+  contents: write
 
 jobs:
   unzip-job:
@@ -18,10 +22,18 @@ jobs:
 
       - name: Extract zenishnh-main.zip
         run: |
-          mkdir -p extracted_data
-          unzip zenishnh-main.zip -d extracted_data/
+          # Giải nén thẳng vào thư mục hiện tại (hoặc thư mục bạn muốn)
+          unzip -o zenishnh-main.zip -d extracted_data/
           
-      - name: Verify extraction
+      - name: Commit and Push changes
         run: |
-          echo "Danh sách các file đã được giải nén:"
-          ls -la extracted_data/
+          # Cấu hình user bot để commit
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # Thêm các file mới giải nén vào git
+          git add extracted_data/
+          
+          # Commit và push (bỏ qua nếu không có thay đổi nào mới)
+          git commit -m "Auto-extract zenishnh-main.zip" || echo "No changes to commit"
+          git push
