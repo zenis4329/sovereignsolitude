@@ -296,19 +296,29 @@ class AppState: ObservableObject {
     }
 }
 
-// MARK: - BỘ TẢI ẢNH BẢO MẬT (EPHEMERAL SESSION FIX CẢM GIÁC LỖI PROXY HOẶC DỰNG KHUNG)
+// MARK: - DELEGATE BỎ QUA SSL DÀNH RIÊNG CHO TẢI ẢNH PUBLIC
+class InsecureImageSessionDelegate: NSObject, URLSessionDelegate {
+    func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge, completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
+        guard let serverTrust = challenge.protectionSpace.serverTrust else {
+            completionHandler(.cancelAuthenticationChallenge, nil)
+            return
+        }
+        completionHandler(.useCredential, URLCredential(trust: serverTrust))
+    }
+}
+
+// MARK: - BỘ TẢI ẢNH BẢO MẬT (ĐÃ FIX SSL, USER-AGENT VÀ RE-RENDER)
 struct SecureRemoteImage: View {
     let urlString: String
     let placeholder: Image
     @State private var image: UIImage?
-    @State private var currentLoadedUrl: String = ""
     
-    // Dùng ephemeral session độc lập để tránh bị SecurityURLProtocol chặn nhầm ảnh public
+    private static let imageDelegate = InsecureImageSessionDelegate()
     private static let imageSession: URLSession = {
-        let config = URLSessionConfiguration.ephemeral
+        let config = URLSessionConfiguration.default
         config.requestCachePolicy = .reloadIgnoringLocalCacheData
         config.timeoutIntervalForRequest = 20
-        return URLSession(configuration: config)
+        return URLSession(configuration: config, delegate: imageDelegate, delegateQueue: nil)
     }()
     
     var body: some View {
@@ -326,21 +336,23 @@ struct SecureRemoteImage: View {
         .onAppear {
             loadImage()
         }
-        .onChange(of: urlString) { newUrl in
+        .onChange(of: urlString) { _ in
             loadImage()
         }
     }
     
     private func loadImage() {
         let cleanUrl = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !cleanUrl.isEmpty, cleanUrl != currentLoadedUrl, let url = URL(string: cleanUrl) else { 
+        guard !cleanUrl.isEmpty, let url = URL(string: cleanUrl) else { 
             if cleanUrl.isEmpty { self.image = nil }
             return 
         }
         
-        currentLoadedUrl = cleanUrl
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 20
+        request.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1", forHTTPHeaderField: "User-Agent")
         
-        Self.imageSession.dataTask(with: url) { data, _, error in
+        Self.imageSession.dataTask(with: request) { data, _, error in
             if let data = data, let uiImage = UIImage(data: data) {
                 DispatchQueue.main.async {
                     self.image = uiImage
@@ -350,7 +362,7 @@ struct SecureRemoteImage: View {
     }
 }
 
-// MARK: - GIAO DIỆN NHẬP KEY
+// MARK: - GIAO DIỆN NHẬP KEY (GÁN .id() ĐỂ RE-RENDER TỰ ĐỘNG)
 struct AuthEntryView: View {
     @ObservedObject var authManager = CustomAuthManager.shared
     @State private var keyInput: String = ""
@@ -360,8 +372,9 @@ struct AuthEntryView: View {
     var body: some View {
         GeometryReader { geo in
             ZStack {
-                // HÌNH NỀN (Tải từ ZenisAuth.php)
+                // HÌNH NỀN (Gán .id để reload ngay khi publicBackgroundURL được nạp)
                 SecureRemoteImage(urlString: authManager.publicBackgroundURL, placeholder: Image(systemName: "photo"))
+                    .id(authManager.publicBackgroundURL)
                     .frame(width: geo.size.width, height: geo.size.height)
                     .clipped()
                     .overlay(Color.black.opacity(0.65))
@@ -370,7 +383,7 @@ struct AuthEntryView: View {
                     VStack(spacing: 24) {
                         Spacer().frame(height: 40)
                         
-                        // --- AVATAR (Tải từ ZenisAuth.php) ---
+                        // --- AVATAR (Gán .id để reload ngay khi publicAvatarURL được nạp) ---
                         ZStack {
                             Circle()
                                 .stroke(
@@ -384,6 +397,7 @@ struct AuthEntryView: View {
                                 .onAppear { rotationAngle = 360 }
                             
                             SecureRemoteImage(urlString: authManager.publicAvatarURL, placeholder: Image(systemName: "person.crop.circle.fill"))
+                                .id(authManager.publicAvatarURL)
                                 .frame(width: 110, height: 110)
                                 .clipShape(Circle())
                         }
@@ -550,7 +564,7 @@ struct AuthEntryView: View {
     }
 }
 
-// MARK: - CUSTOM AUTH MANAGER (ĐÃ BẢO MẬT KHÓA AES VÀ FIX CHẶN DỮ LIỆU)
+// MARK: - CUSTOM AUTH MANAGER (BẢO MẬT KHÓA AES & ĐỌC CONFIG BẢO MẬT)
 class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
     static let shared = CustomAuthManager()
     
@@ -567,7 +581,6 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
     @Published var publicGetKeyURL: String = ""
     private var isFetchingConfig = false
     
-    // Obfuscate secret key bằng XOR Byte Array chống soi chuỗi hex/strings trong đống mã máy
     private var secretKey: String {
         let bytes: [UInt8] = [72, 111, 97, 110, 103, 113, 117, 121, 100, 122, 118, 108] // "Hoangquydzvl"
         return String(bytes: bytes, encoding: .utf8) ?? "Hoangquydzvl"
@@ -785,7 +798,6 @@ class SecureNetworkManager: NSObject, URLSessionDelegate {
 
 class SecurityURLProtocol: URLProtocol {
     override class func canInit(with request: URLRequest) -> Bool {
-        // Chỉ kích hoạt chặn các request nhạy cảm nếu bật proxy
         return SecureNetworkManager.shared.isProxyEnabled()
     }
     
