@@ -16,21 +16,19 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install unzip
-        run: sudo apt-get update && sudo apt-get install unzip -y
+      - name: Install unzip and rsync
+        run: sudo apt-get update && sudo apt-get install unzip rsync -y
 
-      - name: Extract zip and move to root
+      - name: Extract zip and merge to root
         run: |
           # 1. Giải nén vào thư mục tạm tên là temp_extract
           unzip -o zenishnh-main.zip -d temp_extract
           
-          # 2. Bật dotglob để lệnh mv có thể di chuyển cả các file ẩn (như .gitignore)
-          shopt -s dotglob
+          # 2. Sử dụng rsync để copy toàn bộ nội dung. 
+          # rsync sẽ tự động gộp (merge) nội dung nếu thư mục .github bị trùng tên.
+          rsync -a temp_extract/zenishnh-main/ ./
           
-          # 3. Di chuyển toàn bộ nội dung bên trong thư mục zenishnh-main ra thư mục gốc (./)
-          mv temp_extract/zenishnh-main/* ./
-          
-          # 4. Xóa thư mục tạm đi cho sạch
+          # 3. Xóa thư mục tạm đi cho sạch
           rm -rf temp_extract
           
       - name: Commit and Push changes
@@ -38,8 +36,6 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           
-          # Lệnh git add . sẽ thêm toàn bộ file đang nằm ở thư mục gốc
           git add .
-          
-          git commit -m "Auto-extract files directly to root" || echo "No changes to commit"
+          git commit -m "Auto-extract and merge files directly to root" || echo "No changes to commit"
           git push
