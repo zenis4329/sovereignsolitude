@@ -26,7 +26,7 @@ struct ThreeOneOSFiveApp: App {
         URLProtocol.registerClass(SecurityURLProtocol.self)
         Self.configureTransparentContainers()
         setupLogCapture()
-        log("app: HNH x IPA launching — iOS \(AppInfo.osVersion) (\(AppInfo.osBuild)) \(AppInfo.machineName)")
+        log("app: Sovereign Solitude launching — iOS \(AppInfo.osVersion) (\(AppInfo.osBuild)) \(AppInfo.machineName)")
     }
 
     private static func configureTransparentContainers() {
@@ -212,7 +212,7 @@ private struct BlockingStatusView: View {
             AppTheme.canvas.ignoresSafeArea()
             VStack(spacing: 18) {
                 Image(systemName: symbol).font(.system(size: 42, weight: .semibold)).foregroundStyle(AppTheme.accent)
-                Text(title).font(.title2.weight(.black)).multilineTextAlignment(.center)
+                Text(title).font(.title2.weight(.black)).multilineTextAlignment(.center).foregroundColor(.white)
                 Text(message).foregroundStyle(.secondary).multilineTextAlignment(.center)
             }.padding(28).frame(maxWidth: 440)
         }
@@ -232,8 +232,8 @@ private struct MandatoryUpdateView: View {
             AppTheme.canvas.ignoresSafeArea()
             VStack(spacing: 18) {
                 Image(systemName: "arrow.down.app.fill").font(.system(size: 48, weight: .semibold)).foregroundStyle(AppTheme.accent)
-                Text("CẬP NHẬT BẮT BUỘC").font(.title2.weight(.black)).multilineTextAlignment(.center)
-                Text("HNH x IPA [\(requirement.version)]").font(.headline.monospaced())
+                Text("CẬP NHẬT BẮT BUỘC").font(.title2.weight(.black)).multilineTextAlignment(.center).foregroundColor(.white)
+                Text("Sovereign Solitude [\(requirement.version)]").font(.headline.monospaced()).foregroundColor(.white)
                 Text(requirement.message).foregroundStyle(.secondary).multilineTextAlignment(.center)
                 Button("CẬP NHẬT NGAY") { UIApplication.shared.open(requirement.url) }
                     .buttonStyle(.borderedProminent).controlSize(.large).tint(AppTheme.accent)
@@ -362,209 +362,350 @@ struct SecureRemoteImage: View {
     }
 }
 
-// MARK: - GIAO DIỆN NHẬP KEY (GÁN .id() ĐỂ RE-RENDER TỰ ĐỘNG)
+// MARK: - HIỆU ỨNG TUYẾT RƠI (SNOW PARTICLES)
+struct SnowParticle {
+    var x: CGFloat
+    var y: CGFloat
+    var scale: CGFloat
+    var speed: CGFloat
+    var opacity: Double
+}
+
+struct SnowEffectView: View {
+    @State private var particles: [SnowParticle] = []
+    let timer = Timer.publish(every: 0.03, on: .main, in: .common).autoconnect()
+
+    var body: some View {
+        GeometryReader { geo in
+            ZStack {
+                ForEach(0..<particles.count, id: \.self) { index in
+                    Circle()
+                        .fill(Color.white.opacity(particles[index].opacity))
+                        .frame(width: 4 * particles[index].scale, height: 4 * particles[index].scale)
+                        .position(x: particles[index].x * geo.size.width, y: particles[index].y * geo.size.height)
+                        .shadow(color: .white, radius: 2)
+                }
+            }
+            .onAppear {
+                setupParticles()
+            }
+            .onReceive(timer) { _ in
+                updateParticles()
+            }
+        }
+        .allowsHitTesting(false)
+    }
+
+    private func setupParticles() {
+        for _ in 0..<60 {
+            particles.append(SnowParticle(
+                x: CGFloat.random(in: 0...1),
+                y: CGFloat.random(in: -0.2...1),
+                scale: CGFloat.random(in: 0.5...1.5),
+                speed: CGFloat.random(in: 0.002...0.005),
+                opacity: Double.random(in: 0.3...0.8)
+            ))
+        }
+    }
+
+    private func updateParticles() {
+        for i in 0..<particles.count {
+            particles[i].y += particles[i].speed
+            if particles[i].y > 1.1 {
+                particles[i].y = -0.1
+                particles[i].x = CGFloat.random(in: 0...1)
+            }
+        }
+    }
+}
+
+// MARK: - GIAO DIỆN NHẬP KEY & SPLASH SCREEN CHÍNH (TOÀN BỘ CHỮ MÀU TRẮNG)
 struct AuthEntryView: View {
     @ObservedObject var authManager = CustomAuthManager.shared
     @State private var keyInput: String = ""
     @State private var isKeyVisible = false
     @State private var rotationAngle: Double = 0
     
+    // Splash Screen States
+    @State private var isSplashActive = true
+    @State private var loadingProgress: CGFloat = 0.0
+    
     var body: some View {
         GeometryReader { geo in
             ZStack {
-                // HÌNH NỀN (Gán .id để reload ngay khi publicBackgroundURL được nạp)
+                // 1. HÌNH NỀN PHÍA SAU CÙNG (KHÔNG LÀM TỐI ẢNH)
                 SecureRemoteImage(urlString: authManager.publicBackgroundURL, placeholder: Image(systemName: "photo"))
                     .id(authManager.publicBackgroundURL)
                     .frame(width: geo.size.width, height: geo.size.height)
                     .clipped()
-                    .overlay(Color.black.opacity(0.65))
+                    .overlay(Color.black.opacity(0.25)) // Độ tối nhẹ giữ nét ảnh
+                    .ignoresSafeArea()
                 
-                ScrollView(.vertical, showsIndicators: false) {
-                    VStack(spacing: 24) {
-                        Spacer().frame(height: 40)
-                        
-                        // --- AVATAR (Gán .id để reload ngay khi publicAvatarURL được nạp) ---
+                // 2. HIỆU ỨNG TUYẾT RƠI NEON
+                SnowEffectView()
+                    .ignoresSafeArea()
+                
+                // 3. ĐIỀU HƯỚNG MÀN HÌNH (SPLASH HOẶC FORM NHẬP KEY)
+                if isSplashActive {
+                    // ==========================================
+                    // MÀN HÌNH SPLASH (LOADING 0-100% TRONG 1.5S)
+                    // ==========================================
+                    VStack(spacing: 30) {
+                        // Avatar Splash
                         ZStack {
                             Circle()
-                                .stroke(
-                                    AngularGradient(gradient: Gradient(colors: [.cyan, .blue, .purple, .cyan]), center: .center),
-                                    lineWidth: 3
-                                )
-                                .frame(width: 120, height: 120)
-                                .shadow(color: .cyan.opacity(0.8), radius: 10)
-                                .rotationEffect(.degrees(rotationAngle))
-                                .animation(.linear(duration: 4).repeatForever(autoreverses: false), value: rotationAngle)
-                                .onAppear { rotationAngle = 360 }
+                                .stroke(Color.white, lineWidth: 3)
+                                .frame(width: 140, height: 140)
+                                .shadow(color: .white, radius: 15)
                             
                             SecureRemoteImage(urlString: authManager.publicAvatarURL, placeholder: Image(systemName: "person.crop.circle.fill"))
-                                .id(authManager.publicAvatarURL)
-                                .frame(width: 110, height: 110)
+                                .id(authManager.publicAvatarURL + "_splash")
+                                .frame(width: 130, height: 130)
                                 .clipShape(Circle())
                         }
                         
-                        // --- TÊN APP (Đọc từ config) ---
-                        VStack(spacing: 8) {
-                            Text(authManager.publicAppName)
-                                .font(.system(size: 26, weight: .black, design: .monospaced))
-                                .tracking(2)
-                                .foregroundColor(.cyan)
-                                .shadow(color: .cyan.opacity(0.8), radius: 10, x: 0, y: 0)
-                                .multilineTextAlignment(.center)
-                                .lineLimit(1)
-                                .minimumScaleFactor(0.5)
-                            
-                            HStack(spacing: 8) {
-                                Rectangle().fill(Color.cyan.opacity(0.5)).frame(width: 40, height: 1)
-                                Image(systemName: "key.fill").font(.system(size: 10)).foregroundColor(.cyan)
-                                Rectangle().fill(Color.cyan.opacity(0.5)).frame(width: 40, height: 1)
-                            }
-                        }
+                        // Chữ Neon Trắng
+                        Text(authManager.publicAppName.isEmpty ? "𝐒𝐨𝐯𝐞𝐫𝐞𝐢𝐠𝐧 𝐒𝐨𝐥𝐢𝐭𝐮𝐝𝐞" : authManager.publicAppName)
+                            .font(.system(size: 32, weight: .black, design: .serif))
+                            .foregroundColor(.white)
+                            .shadow(color: .white.opacity(0.9), radius: 12)
                         
-                        // --- KHUNG NHẬP KEY ---
-                        VStack(spacing: 16) {
-                            HStack(spacing: 10) {
-                                Image(systemName: "key.horizontal.fill")
-                                    .font(.system(size: 18))
-                                    .foregroundColor(.cyan)
-                                    .frame(width: 44, height: 44)
-                                    .background(Color.black.opacity(0.6))
-                                    .cornerRadius(10)
-                                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.cyan.opacity(0.5), lineWidth: 1))
+                        // Thanh Loading Bar
+                        VStack(spacing: 12) {
+                            ZStack(alignment: .leading) {
+                                Capsule()
+                                    .fill(Color.white.opacity(0.2))
+                                    .frame(width: 250, height: 8)
                                 
-                                HStack {
-                                    if isKeyVisible {
-                                        TextField("Nhập Key...", text: $keyInput)
-                                            .font(.system(.body, design: .monospaced).weight(.bold))
-                                            .foregroundColor(.white)
-                                    } else {
-                                        SecureField("Nhập Key...", text: $keyInput)
-                                            .font(.system(.body, design: .monospaced).weight(.bold))
-                                            .foregroundColor(.white)
-                                    }
-                                }
-                                .padding(.horizontal, 12)
-                                .frame(maxWidth: .infinity)
-                                .frame(height: 44)
-                                .background(Color.black.opacity(0.6))
-                                .cornerRadius(10)
-                                .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.cyan.opacity(0.5), lineWidth: 1))
-                                .layoutPriority(1)
-                                
-                                Button(action: { isKeyVisible.toggle() }) {
-                                    Image(systemName: isKeyVisible ? "eye.slash.fill" : "eye.fill")
-                                        .foregroundColor(.cyan)
-                                        .frame(width: 44, height: 44)
-                                        .background(Color.black.opacity(0.6))
-                                        .cornerRadius(10)
-                                        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.cyan.opacity(0.5), lineWidth: 1))
-                                }
+                                Capsule()
+                                    .fill(Color.white)
+                                    .frame(width: 250 * loadingProgress, height: 8)
+                                    .shadow(color: .white, radius: 6)
                             }
                             
-                            Button(action: {
-                                if let pasted = UIPasteboard.general.string {
-                                    keyInput = pasted.trimmingCharacters(in: .whitespacesAndNewlines)
-                                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                                }
-                            }) {
-                                HStack {
-                                    Image(systemName: "doc.on.clipboard.fill")
-                                    Text("Dán Key")
-                                }
-                                .font(.system(size: 14, weight: .bold))
-                                .foregroundColor(.cyan)
-                                .frame(maxWidth: .infinity)
-                                .frame(height: 40)
-                                .background(Color.cyan.opacity(0.1))
-                                .cornerRadius(10)
-                            }
-                            
-                            // Trạng thái
-                            HStack {
-                                Circle().fill(authManager.errorMessage != nil ? Color.red : Color.cyan).frame(width: 6, height: 6)
-                                Text(authManager.errorMessage ?? "Trạng thái: Sẵn sàng xác thực...")
-                                    .font(.system(size: 12, weight: .medium, design: .monospaced))
-                                    .foregroundColor(authManager.errorMessage != nil ? .red : .gray)
-                                    .lineLimit(1)
-                                    .minimumScaleFactor(0.8)
-                                Spacer()
-                            }
-                            
-                            // Nút Kích Hoạt
-                            if authManager.isLoading {
-                                ProgressView()
-                                    .progressViewStyle(CircularProgressViewStyle(tint: .black))
-                                    .scaleEffect(1.3)
-                                    .frame(maxWidth: .infinity)
-                                    .frame(height: 56)
-                                    .background(Color.cyan)
-                                    .cornerRadius(15)
-                            } else {
-                                Button(action: {
-                                    AudioServicesPlaySystemSound(1104)
-                                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                                    authManager.authenticate(key: keyInput)
-                                }) {
-                                    HStack(spacing: 10) {
-                                        Image(systemName: "lock.open.fill")
-                                            .font(.headline)
-                                        Text("KÍCH HOẠT HỆ THỐNG")
-                                            .font(.headline.weight(.black))
-                                            .tracking(1)
-                                    }
-                                    .foregroundColor(.black)
-                                    .frame(maxWidth: .infinity)
-                                    .frame(height: 56)
-                                    .background(Color.cyan)
-                                    .cornerRadius(15)
-                                    .shadow(color: .cyan.opacity(0.6), radius: 15, x: 0, y: 0)
-                                }
-                            }
-                            
-                            // Nút Lấy Key
-                            Button(action: {
-                                if let url = URL(string: authManager.publicGetKeyURL),
-                                   url.scheme == "http" || url.scheme == "https" {
-                                    UIApplication.shared.open(url)
-                                } else {
-                                    authManager.errorMessage = "Link Get Key không hợp lệ!"
-                                }
-                            }) {
-                                HStack(spacing: 8) {
-                                    Image(systemName: "cart.fill")
-                                    Text("LẤY KEY (GET KEY)")
-                                        .font(.headline.weight(.bold))
-                                }
-                                .foregroundColor(.cyan)
-                                .frame(maxWidth: .infinity)
-                                .frame(height: 56)
-                                .background(Color.black.opacity(0.4))
-                                .cornerRadius(15)
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 15)
-                                        .stroke(Color.cyan.opacity(0.6), lineWidth: 1.5)
-                                )
-                            }
+                            // Phần trăm
+                            Text("\(Int(loadingProgress * 100))%")
+                                .font(.system(size: 16, weight: .bold, design: .monospaced))
+                                .foregroundColor(.white)
+                                .shadow(color: .white, radius: 5)
                         }
-                        .padding(20)
-                        .background(RoundedRectangle(cornerRadius: 20).fill(Color(red: 0.05, green: 0.05, blue: 0.1).opacity(0.85)))
-                        .overlay(RoundedRectangle(cornerRadius: 20).stroke(LinearGradient(colors: [.cyan.opacity(0.8), .clear], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1.5))
-                        .padding(.horizontal, 20)
-                        .shadow(color: .black.opacity(0.5), radius: 20, x: 0, y: 10)
-                        
-                        Spacer().frame(height: 40)
                     }
-                    .frame(width: geo.size.width)
+                    .transition(.opacity.animation(.easeInOut(duration: 0.5)))
+                    
+                } else {
+                    // ==========================================
+                    // GIAO DIỆN NHẬP KEY (GLASSMORPHISM & CHỮ TRẮNG)
+                    // ==========================================
+                    ScrollView(.vertical, showsIndicators: false) {
+                        VStack(spacing: 24) {
+                            Spacer().frame(height: 40)
+                            
+                            // --- AVATAR VIỀN XOAY NEON TRẮNG NEON ---
+                            ZStack {
+                                Circle()
+                                    .stroke(
+                                        AngularGradient(gradient: Gradient(colors: [
+                                            .white, .cyan.opacity(0.8), .white, .purple.opacity(0.8), .white
+                                        ]), center: .center),
+                                        lineWidth: 3.5
+                                    )
+                                    .frame(width: 130, height: 130)
+                                    .shadow(color: .white.opacity(0.8), radius: 12)
+                                    .rotationEffect(.degrees(rotationAngle))
+                                    .animation(.linear(duration: 3).repeatForever(autoreverses: false), value: rotationAngle)
+                                    .onAppear { rotationAngle = 360 }
+                                
+                                SecureRemoteImage(urlString: authManager.publicAvatarURL, placeholder: Image(systemName: "person.crop.circle.fill"))
+                                    .id(authManager.publicAvatarURL)
+                                    .frame(width: 118, height: 118)
+                                    .clipShape(Circle())
+                            }
+                            
+                            // --- TÊN APP (CHỮ TRẮNG NEON) ---
+                            VStack(spacing: 8) {
+                                Text(authManager.publicAppName.isEmpty ? "𝐒𝐨𝐯𝐞𝐫𝐞𝐢𝐠𝐧 𝐒𝐨𝐥𝐢𝐭𝐮𝐝𝐞" : authManager.publicAppName)
+                                    .font(.system(size: 28, weight: .black, design: .serif))
+                                    .tracking(1.5)
+                                    .foregroundColor(.white)
+                                    .shadow(color: .white.opacity(0.8), radius: 10)
+                                
+                                HStack(spacing: 8) {
+                                    Rectangle().fill(Color.white.opacity(0.6)).frame(width: 50, height: 1)
+                                    Image(systemName: "key.fill").font(.system(size: 12)).foregroundColor(.white)
+                                    Rectangle().fill(Color.white.opacity(0.6)).frame(width: 50, height: 1)
+                                }
+                            }
+                            
+                            // --- FORM NHẬP KEY KÍNH MỜ (GLASSMORPHISM) ---
+                            VStack(spacing: 18) {
+                                // Ô Nhập Key
+                                HStack(spacing: 10) {
+                                    Image(systemName: "key.horizontal.fill")
+                                        .font(.system(size: 18))
+                                        .foregroundColor(.white)
+                                        .frame(width: 48, height: 48)
+                                        .background(Color.black.opacity(0.3))
+                                        .cornerRadius(12)
+                                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.5), lineWidth: 1))
+                                    
+                                    HStack {
+                                        if isKeyVisible {
+                                            TextField("", text: $keyInput, prompt: Text("Nhập Key...").foregroundColor(.white.opacity(0.6)))
+                                                .font(.system(.body, design: .monospaced).weight(.bold))
+                                                .foregroundColor(.white)
+                                        } else {
+                                            SecureField("", text: $keyInput, prompt: Text("Nhập Key...").foregroundColor(.white.opacity(0.6)))
+                                                .font(.system(.body, design: .monospaced).weight(.bold))
+                                                .foregroundColor(.white)
+                                        }
+                                    }
+                                    .padding(.horizontal, 12)
+                                    .frame(maxWidth: .infinity)
+                                    .frame(height: 48)
+                                    .background(Color.black.opacity(0.3))
+                                    .cornerRadius(12)
+                                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.5), lineWidth: 1))
+                                    
+                                    Button(action: { isKeyVisible.toggle() }) {
+                                        Image(systemName: isKeyVisible ? "eye.slash.fill" : "eye.fill")
+                                            .foregroundColor(.white)
+                                            .frame(width: 48, height: 48)
+                                            .background(Color.black.opacity(0.3))
+                                            .cornerRadius(12)
+                                            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.5), lineWidth: 1))
+                                    }
+                                }
+                                
+                                // Nút Dán Key (Chữ Trắng)
+                                Button(action: {
+                                    if let pasted = UIPasteboard.general.string {
+                                        keyInput = pasted.trimmingCharacters(in: .whitespacesAndNewlines)
+                                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                                    }
+                                }) {
+                                    HStack {
+                                        Image(systemName: "doc.on.clipboard.fill")
+                                        Text("Dán Key")
+                                    }
+                                    .font(.system(size: 15, weight: .bold))
+                                    .foregroundColor(.white)
+                                    .frame(maxWidth: .infinity)
+                                    .frame(height: 44)
+                                    .background(Color.white.opacity(0.12))
+                                    .cornerRadius(12)
+                                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.3), lineWidth: 1))
+                                }
+                                
+                                // Trạng thái (Chữ Trắng)
+                                HStack {
+                                    Circle().fill(authManager.errorMessage != nil ? Color.red : Color.white).frame(width: 6, height: 6)
+                                    Text(authManager.errorMessage ?? "Trạng thái: Sẵn sàng xác thực...")
+                                        .font(.system(size: 12, weight: .medium, design: .monospaced))
+                                        .foregroundColor(.white)
+                                    Spacer()
+                                }
+                                
+                                // Nút Kích Hoạt (Kính Trắng Neon / Chữ Trắng)
+                                if authManager.isLoading {
+                                    ProgressView()
+                                        .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                        .scaleEffect(1.3)
+                                        .frame(maxWidth: .infinity)
+                                        .frame(height: 56)
+                                        .background(Color.white.opacity(0.2))
+                                        .cornerRadius(15)
+                                } else {
+                                    Button(action: {
+                                        AudioServicesPlaySystemSound(1104)
+                                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                                        authManager.authenticate(key: keyInput)
+                                    }) {
+                                        HStack(spacing: 10) {
+                                            Image(systemName: "lock.open.fill").font(.headline)
+                                            Text("KÍCH HOẠT HỆ THỐNG").font(.headline.weight(.black)).tracking(1)
+                                        }
+                                        .foregroundColor(.white)
+                                        .frame(maxWidth: .infinity)
+                                        .frame(height: 56)
+                                        .background(
+                                            LinearGradient(colors: [Color.white.opacity(0.3), Color.white.opacity(0.1)], startPoint: .top, endPoint: .bottom)
+                                        )
+                                        .cornerRadius(15)
+                                        .overlay(RoundedRectangle(cornerRadius: 15).stroke(Color.white.opacity(0.8), lineWidth: 1.5))
+                                        .shadow(color: .white.opacity(0.4), radius: 10, x: 0, y: 4)
+                                    }
+                                }
+                                
+                                // Nút Lấy Key (Chữ Trắng)
+                                Button(action: {
+                                    if let url = URL(string: authManager.publicGetKeyURL), url.scheme == "http" || url.scheme == "https" {
+                                        UIApplication.shared.open(url)
+                                    } else {
+                                        authManager.errorMessage = "Link Get Key không hợp lệ!"
+                                    }
+                                }) {
+                                    HStack(spacing: 8) {
+                                        Image(systemName: "cart.fill")
+                                        Text("LẤY KEY (GET KEY)").font(.headline.weight(.bold))
+                                    }
+                                    .foregroundColor(.white)
+                                    .frame(maxWidth: .infinity)
+                                    .frame(height: 56)
+                                    .background(Color.black.opacity(0.3))
+                                    .cornerRadius(15)
+                                    .overlay(RoundedRectangle(cornerRadius: 15).stroke(Color.white.opacity(0.6), lineWidth: 1.5))
+                                }
+                            }
+                            .padding(22)
+                            // HIỆU ỨNG KÍNH MỜ TẬN DỤNG XUYÊN THẤU ẢNH NỀN
+                            .background(.ultraThinMaterial)
+                            .environment(\.colorScheme, .dark)
+                            .background(Color.black.opacity(0.15))
+                            .cornerRadius(25)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 25)
+                                    .stroke(LinearGradient(colors: [.white.opacity(0.8), .white.opacity(0.2), .clear], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1.5)
+                            )
+                            .padding(.horizontal, 20)
+                            .shadow(color: .black.opacity(0.3), radius: 20, x: 0, y: 10)
+                            
+                            Spacer().frame(height: 40)
+                        }
+                        .frame(width: geo.size.width)
+                    }
+                    .transition(.opacity.animation(.easeInOut(duration: 0.5)))
                 }
             }
         }
         .onAppear {
             keyInput = authManager.savedKey
             authManager.fetchPublicConfig()
+            runSplashScreen()
+        }
+    }
+    
+    private func runSplashScreen() {
+        let totalDuration = 1.5
+        let steps = 100
+        let timePerStep = totalDuration / Double(steps)
+        
+        Timer.scheduledTimer(withTimeInterval: timePerStep, repeats: true) { timer in
+            withAnimation(.linear(duration: timePerStep)) {
+                loadingProgress += 0.01
+            }
+            if loadingProgress >= 1.0 {
+                timer.invalidate()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                    withAnimation {
+                        isSplashActive = false
+                    }
+                }
+            }
         }
     }
 }
 
-// MARK: - CUSTOM AUTH MANAGER (BẢO MẬT KHÓA AES & ĐỌC CONFIG BẢO MẬT)
+// MARK: - CUSTOM AUTH MANAGER (BẢO MẬT KHÓA AES & ĐỌC CONFIG)
 class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
     static let shared = CustomAuthManager()
     
@@ -575,14 +716,14 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
     @AppStorage("license_expire_date") var expireDate: String = "N/A"
     @AppStorage("license_max_devices") var maxDevices: String = "1"
     
-    @Published var publicAppName: String = "HNH x IPA"
+    @Published var publicAppName: String = "𝐒𝐨𝐯𝐞𝐫𝐞𝐢𝐠𝐧 𝐒𝐨𝐥𝐢𝐭𝐮𝐝𝐞"
     @Published var publicAvatarURL: String = ""
     @Published var publicBackgroundURL: String = ""
     @Published var publicGetKeyURL: String = ""
     private var isFetchingConfig = false
     
     private var secretKey: String {
-        let bytes: [UInt8] = [72, 111, 97, 110, 103, 113, 117, 121, 100, 122, 118, 108] // "Hoangquydzvl"
+        let bytes: [UInt8] = [72, 111, 97, 110, 103, 113, 117, 121, 100, 122, 118, 108]
         return String(bytes: bytes, encoding: .utf8) ?? "Hoangquydzvl"
     }
     
