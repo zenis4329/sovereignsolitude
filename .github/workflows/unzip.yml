@@ -1,4 +1,4 @@
-name: Extract Zip File
+name: Extract Zip Files
 
 on:
   push:
@@ -16,26 +16,47 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install unzip and rsync
-        run: sudo apt-get update && sudo apt-get install unzip rsync -y
-
-      - name: Extract zip and merge to root
+      - name: Extract zip files to target folders
         run: |
-          # 1. Giải nén vào thư mục tạm tên là temp_extract
-          unzip -o zenishnh-main.zip -d temp_extract
+          # Bật tính năng nhận diện file ẩn
+          shopt -s dotglob
+
+          # 1. Giải nén ThreeOneOSFive (2).zip vào thư mục ThreeOneOSFive
+          mkdir -p temp1
+          unzip -q -o "ThreeOneOSFive (2).zip" -d temp1
+          mkdir -p ThreeOneOSFive
           
-          # 2. Sử dụng rsync để copy toàn bộ nội dung. 
-          # rsync sẽ tự động gộp (merge) nội dung nếu thư mục .github bị trùng tên.
-          rsync -a temp_extract/zenishnh-main/ ./
+          if [ -d temp1/"ThreeOneOSFive (2)" ]; then
+            cp -r temp1/"ThreeOneOSFive (2)"/* ThreeOneOSFive/
+          elif [ -d temp1/ThreeOneOSFive ]; then
+            cp -r temp1/ThreeOneOSFive/* ThreeOneOSFive/
+          else
+            cp -r temp1/* ThreeOneOSFive/
+          fi
+          rm -rf temp1
+
+          # 2. Giải nén ThreeOneOSFive.xcodeproj (2).zip vào thư mục ThreeOneOSFive.xcodeproj
+          mkdir -p temp2
+          unzip -q -o "ThreeOneOSFive.xcodeproj (2).zip" -d temp2
+          mkdir -p ThreeOneOSFive.xcodeproj
           
-          # 3. Xóa thư mục tạm đi cho sạch
-          rm -rf temp_extract
-          
+          if [ -d temp2/"ThreeOneOSFive.xcodeproj (2)" ]; then
+            cp -r temp2/"ThreeOneOSFive.xcodeproj (2)"/* ThreeOneOSFive.xcodeproj/
+          elif [ -d temp2/ThreeOneOSFive.xcodeproj ]; then
+            cp -r temp2/ThreeOneOSFive.xcodeproj/* ThreeOneOSFive.xcodeproj/
+          else
+            cp -r temp2/* ThreeOneOSFive.xcodeproj/
+          fi
+          rm -rf temp2
+
+          # 3. Xóa các file zip sau khi đã giải nén xong cho gọn repository
+          rm -f "ThreeOneOSFive (2).zip" "ThreeOneOSFive.xcodeproj (2).zip"
+
       - name: Commit and Push changes
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           
           git add .
-          git commit -m "Auto-extract and merge files directly to root" || echo "No changes to commit"
+          git commit -m "Auto-extract zips into ThreeOneOSFive and ThreeOneOSFive.xcodeproj [skip ci]" || echo "No changes to commit"
           git push
