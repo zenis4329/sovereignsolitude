@@ -1,36 +1,27 @@
-name: Unzip and Commit
+name: Extract Zip File
 
 on:
   push:
-    branches: [ main ]
-    paths:
-      - 'zenishnh-main.zip'   # Chỉ chạy khi file ZIP thay đổi
-  workflow_dispatch:          # Cho phép chạy thủ công
-
-permissions:
-  contents: write             # Cấp quyền ghi để có thể commit
+    branches: [ "main" ]
+  workflow_dispatch: # Cho phép kích hoạt chạy thủ công từ tab Actions
 
 jobs:
-  unzip-and-commit:
+  unzip-job:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout repository
+      - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Unzip and Flatten the file
-        run: |
-          # 1. Giải nén file ZIP ra
-          unzip -o zenishnh-main.zip
-          
-          # 2. "Bới" toàn bộ file bên trong thư mục zenishnh-main ra ngoài thư mục gốc
-          # Dấu "/." giúp lấy cả các file ẩn
-          cp -a zenishnh-main/. .
-          
-          # 3. Xóa cái thư mục rỗng zenishnh-main đi
-          rm -rf zenishnh-main
+      - name: Install unzip
+        run: sudo apt-get update && sudo apt-get install unzip -y
 
-      - name: Commit and push changes
-        uses: stefanzweifel/git-auto-commit-action@v5
-        with:
-          commit_message: "Auto-unzip and flatten zenishnh-main.zip"
-          file_pattern: .
+      - name: Extract zenishnh-main.zip
+        run: |
+          mkdir -p extracted_data
+          unzip zenishnh-main.zip -d extracted_data/
+          
+      - name: Verify extraction
+        run: |
+          echo "Danh sách các file đã được giải nén:"
+          ls -la extracted_data/
