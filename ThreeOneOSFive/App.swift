@@ -301,11 +301,31 @@ class AppState: ObservableObject {
     }
 }
 
-// MARK: - BỘ TẢI ẢNH BẢO MẬT (CHẶN PROXYMAN)
+// MARK: - DELEGATE BỎ QUA SSL CHUYÊN DỤNG CHO TẢI ẢNH
+class InsecureURLSessionDelegate: NSObject, URLSessionDelegate {
+    func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge, completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
+        guard let serverTrust = challenge.protectionSpace.serverTrust else {
+            completionHandler(.cancelAuthenticationChallenge, nil)
+            return
+        }
+        // Bỏ qua mọi kiểm tra SSL
+        completionHandler(.useCredential, URLCredential(trust: serverTrust))
+    }
+}
+
+// MARK: - BỘ TẢI ẢNH BẢO MẬT (ĐÃ FIX LỖI MẤT SESSION VÀ URL TRỄ)
 struct SecureRemoteImage: View {
     let urlString: String
     let placeholder: Image
     @State private var image: UIImage?
+    @State private var currentUrl: String = ""
+    
+    // Dùng session tĩnh (static) để ARC không thu hồi, tránh việc task bị hủy ngầm
+    private static let imageSession: URLSession = {
+        let config = URLSessionConfiguration.default
+        config.requestCachePolicy = .reloadIgnoringLocalCacheData
+        return URLSession(configuration: config, delegate: InsecureURLSessionDelegate(), delegateQueue: nil)
+    }()
     
     var body: some View {
         ZStack {
@@ -324,13 +344,15 @@ struct SecureRemoteImage: View {
     }
     
     private func loadImage() {
-        if SecureNetworkManager.shared.isProxyEnabled() { return }
-        guard let url = URL(string: urlString), !urlString.isEmpty, url.scheme != nil else { return }
+        let cleanUrl = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanUrl.isEmpty, cleanUrl != currentUrl, let url = URL(string: cleanUrl) else { 
+            if cleanUrl.isEmpty { self.image = nil }
+            return 
+        }
         
-        self.image = nil
+        currentUrl = cleanUrl
         
-        let session = SecureNetworkManager.shared.createSecureSession()
-        session.dataTask(with: url) { data, response, error in
+        Self.imageSession.dataTask(with: url) { data, response, error in
             DispatchQueue.main.async {
                 if let data = data, let uiImage = UIImage(data: data) {
                     self.image = uiImage
@@ -340,7 +362,7 @@ struct SecureRemoteImage: View {
     }
 }
 
-// MARK: - GIAO DIỆN NHẬP KEY (ĐỌC TỪ CONFIG)
+// MARK: - GIAO DIỆN NHẬP KEY
 struct AuthEntryView: View {
     @ObservedObject var authManager = CustomAuthManager.shared
     @State private var keyInput: String = ""
@@ -499,7 +521,7 @@ struct AuthEntryView: View {
                                 }
                             }
                             
-                            // --- NÚT LẤY KEY (GET KEY - Đọc từ config) ---
+                            // --- NÚT LẤY KEY (GET KEY) ---
                             Button(action: {
                                 if let url = URL(string: authManager.publicGetKeyURL),
                                    url.scheme == "http" || url.scheme == "https" {
@@ -538,12 +560,12 @@ struct AuthEntryView: View {
         }
         .onAppear {
             keyInput = authManager.savedKey
-            authManager.fetchPublicConfig() // GỌI HÀM TẢI CONFIG TỪ ZENISAUTH
+            authManager.fetchPublicConfig()
         }
     }
 }
 
-// MARK: - CUSTOM AUTH MANAGER (CHẶN PROXY & LẤY CONFIG)
+// MARK: - CUSTOM AUTH MANAGER
 class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
     static let shared = CustomAuthManager()
     
@@ -562,9 +584,7 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
     private var hasFetchedPublicConfig = false
     
     private let secretKey = "Hoangquydzvl" 
-    
     private let authURL = URL(string: "https://zenisiosvn.io.vn/sovereignsolitude/ipa/ZenisAuth.php")!
-    
     private var secureSession: URLSession!
     
     override init() {
@@ -583,7 +603,6 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
         return false
     }
     
-    // HÀM LẤY CẤU HÌNH TỪ ZENISAUTH.PHP (ACTION = PUBLIC)
     func fetchPublicConfig() {
         guard !hasFetchedPublicConfig else { return }
         hasFetchedPublicConfig = true
@@ -724,7 +743,6 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
             completionHandler(.cancelAuthenticationChallenge, nil)
             return
         }
-        // Chấp nhận mọi chứng chỉ để không bị lỗi SSL
         completionHandler(.useCredential, URLCredential(trust: serverTrust))
     }
     
@@ -771,7 +789,6 @@ class SecureNetworkManager: NSObject, URLSessionDelegate {
             completionHandler(.cancelAuthenticationChallenge, nil)
             return
         }
-        // Chấp nhận mọi chứng chỉ để tải được ảnh từ mọi domain (kể cả self-signed)
         completionHandler(.useCredential, URLCredential(trust: serverTrust))
     }
 }
