@@ -5,7 +5,6 @@ on:
     branches: [ "main" ]
   workflow_dispatch:
 
-# Cấp quyền để Action có thể push code lên repo
 permissions:
   contents: write
 
@@ -20,20 +19,27 @@ jobs:
       - name: Install unzip
         run: sudo apt-get update && sudo apt-get install unzip -y
 
-      - name: Extract zenishnh-main.zip
+      - name: Extract zip and move to root
         run: |
-          # Giải nén thẳng vào thư mục hiện tại (hoặc thư mục bạn muốn)
-          unzip -o zenishnh-main.zip -d extracted_data/
+          # 1. Giải nén vào thư mục tạm tên là temp_extract
+          unzip -o zenishnh-main.zip -d temp_extract
+          
+          # 2. Bật dotglob để lệnh mv có thể di chuyển cả các file ẩn (như .gitignore)
+          shopt -s dotglob
+          
+          # 3. Di chuyển toàn bộ nội dung bên trong thư mục zenishnh-main ra thư mục gốc (./)
+          mv temp_extract/zenishnh-main/* ./
+          
+          # 4. Xóa thư mục tạm đi cho sạch
+          rm -rf temp_extract
           
       - name: Commit and Push changes
         run: |
-          # Cấu hình user bot để commit
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           
-          # Thêm các file mới giải nén vào git
-          git add extracted_data/
+          # Lệnh git add . sẽ thêm toàn bộ file đang nằm ở thư mục gốc
+          git add .
           
-          # Commit và push (bỏ qua nếu không có thay đổi nào mới)
-          git commit -m "Auto-extract zenishnh-main.zip" || echo "No changes to commit"
+          git commit -m "Auto-extract files directly to root" || echo "No changes to commit"
           git push
