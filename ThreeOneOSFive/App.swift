@@ -319,6 +319,9 @@ struct SecureRemoteImage: View {
         .onAppear {
             loadImage()
         }
+        .onChange(of: urlString) { _ in
+            loadImage()
+        }
     }
     
     private func loadImage() {
@@ -327,7 +330,7 @@ struct SecureRemoteImage: View {
             return
         }
         
-        guard let url = URL(string: urlString) else { isLoading = false; return }
+        guard let url = URL(string: urlString), !urlString.isEmpty else { isLoading = false; return }
         
         let session = SecureNetworkManager.shared.createSecureSession()
         session.dataTask(with: url) { data, response, error in
@@ -341,29 +344,25 @@ struct SecureRemoteImage: View {
     }
 }
 
-// MARK: - GIAO DIỆN NHẬP KEY (ĐÃ FIX LỖI PHÓNG TO BẰNG GEOMETRYREADER)
+// MARK: - GIAO DIỆN NHẬP KEY (ĐỌC TỪ CONFIG)
 struct AuthEntryView: View {
     @ObservedObject var authManager = CustomAuthManager.shared
     @State private var keyInput: String = ""
     @State private var isKeyVisible = false
     @State private var rotationAngle: Double = 0
     
-    private let fixedBgURL = "https://solitudepremium.click/ipa/anh/nen.jpg"
-    private let fixedAvatarURL = "https://solitudepremium.click/ipa/anh/avatar.jpg"
-    private let getKeyURL = "https://solitudepremium.click/ipa/zeniskey/index.php"
-    
     var body: some View {
         GeometryReader { geo in
             ZStack {
-                // HÌNH NỀN
-                SecureRemoteImage(urlString: fixedBgURL, placeholder: Image(systemName: "photo"))
+                // HÌNH NỀN (Đọc từ config)
+                SecureRemoteImage(urlString: authManager.publicBackgroundURL, placeholder: Image(systemName: "photo"))
                     .frame(width: geo.size.width, height: geo.size.height)
                     .clipped()
                     .overlay(Color.black.opacity(0.6))
                 
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(spacing: 24) {
-                        // --- AVATAR ---
+                        // --- AVATAR (Đọc từ config) ---
                         ZStack {
                             Circle()
                                 .stroke(
@@ -376,18 +375,21 @@ struct AuthEntryView: View {
                                 .animation(.linear(duration: 4).repeatForever(autoreverses: false), value: rotationAngle)
                                 .onAppear { rotationAngle = 360 }
                             
-                            SecureRemoteImage(urlString: fixedAvatarURL, placeholder: Image(systemName: "person.crop.circle.fill"))
+                            SecureRemoteImage(urlString: authManager.publicAvatarURL, placeholder: Image(systemName: "person.crop.circle.fill"))
                                 .frame(width: 110, height: 110)
                                 .clipShape(Circle())
                         }
                         
-                        // --- TÊN APP ---
+                        // --- TÊN APP (Đọc từ config) ---
                         VStack(spacing: 8) {
-                            Text("HNH x IPA")
+                            Text(authManager.publicAppName)
                                 .font(.system(size: 28, weight: .black, design: .monospaced))
                                 .tracking(4)
                                 .foregroundColor(.cyan)
                                 .shadow(color: .cyan.opacity(0.8), radius: 10, x: 0, y: 0)
+                                .multilineTextAlignment(.center)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.5)
                             
                             HStack(spacing: 8) {
                                 Rectangle().fill(Color.cyan.opacity(0.5)).frame(width: 40, height: 1)
@@ -501,9 +503,9 @@ struct AuthEntryView: View {
                                 }
                             }
                             
-                            // --- NÚT LẤY KEY (GET KEY) ---
+                            // --- NÚT LẤY KEY (GET KEY - Đọc từ config) ---
                             Button(action: {
-                                if let url = URL(string: getKeyURL) {
+                                if let url = URL(string: authManager.publicGetKeyURL) {
                                     UIApplication.shared.open(url)
                                 }
                             }) {
@@ -537,11 +539,12 @@ struct AuthEntryView: View {
         }
         .onAppear {
             keyInput = authManager.savedKey
+            authManager.fetchPublicConfig() // GỌI HÀM TẢI CONFIG TỪ ZENISAUTH
         }
     }
 }
 
-// MARK: - CUSTOM AUTH MANAGER (CHẶN PROXY)
+// MARK: - CUSTOM AUTH MANAGER (CHẶN PROXY & LẤY CONFIG)
 class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
     static let shared = CustomAuthManager()
     
@@ -552,8 +555,18 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
     @AppStorage("license_expire_date") var expireDate: String = "N/A"
     @AppStorage("license_max_devices") var maxDevices: String = "1"
     
+    // --- BIẾN ĐỘNG LƯU CONFIG MÀN HÌNH LOGIN ---
+    @Published var publicAppName: String = "HNH x IPA"
+    @Published var publicAvatarURL: String = "https://zenisiosvn.io.vn/sovereignsolitude/ipa/uploads/avatar.jpg"
+    @Published var publicBackgroundURL: String = "https://zenisiosvn.io.vn/sovereignsolitude/ipa/uploads/nen.jpg"
+    @Published var publicGetKeyURL: String = "https://zenisiosvn.io.vn/sovereignsolitude/ipa/zeniskey/index.php"
+    private var hasFetchedPublicConfig = false
+    
     private let secretKey = "Hoangquydzvl" 
-    private let authURL = URL(string: "https://solitudepremium.click/ipa/zenissolitude/ZenisAuth.php")!
+    
+    // ĐÃ THAY ĐỔI LINK DOMAIN MỚI TẠI ĐÂY
+    private let authURL = URL(string: "https://zenisiosvn.io.vn/sovereignsolitude/ipa/ZenisAuth.php")!
+    
     private var secureSession: URLSession!
     
     override init() {
@@ -570,6 +583,61 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
         if let https = proxySettings["HTTPSProxy"] as? String, !https.isEmpty { return true }
         if let socks = proxySettings["SOCKSProxy"] as? String, !socks.isEmpty { return true }
         return false
+    }
+    
+    // HÀM LẤY CẤU HÌNH TỪ ZENISAUTH.PHP (ACTION = PUBLIC)
+    func fetchPublicConfig() {
+        guard !hasFetchedPublicConfig else { return } // Chỉ chạy 1 lần
+        hasFetchedPublicConfig = true
+        
+        if isProxyConfigured() { return }
+        
+        let timestamp = Int(Date().timeIntervalSince1970)
+        let payloadDict: [String: Any] = [
+            "action": "public",
+            "key": "",
+            "device_id": AppDeviceIdentity.value,
+            "timestamp": timestamp
+        ]
+        
+        guard let jsonData = try? JSONSerialization.data(withJSONObject: payloadDict),
+              let jsonString = String(data: jsonData, encoding: .utf8),
+              let encryptedBase64 = encryptAES(jsonString, key: secretKey) else {
+            return
+        }
+        
+        var request = URLRequest(url: authURL)
+        request.httpMethod = "POST"
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        request.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)", forHTTPHeaderField: "User-Agent")
+        
+        let encodedBase64 = encryptedBase64.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? ""
+        let bodyString = "data=\(encodedBase64)"
+        request.httpBody = bodyString.data(using: .utf8)
+        
+        secureSession.dataTask(with: request) { [weak self] data, response, error in
+            guard let data = data, let responseString = String(data: data, encoding: .utf8) else { return }
+            
+            if let decryptedString = self?.decryptAES(responseString, key: self?.secretKey ?? ""),
+               let resData = decryptedString.data(using: .utf8),
+               let resDict = try? JSONSerialization.jsonObject(with: resData) as? [String: Any] {
+                
+                DispatchQueue.main.async {
+                    if let appName = resDict["app_name"] as? String, !appName.isEmpty {
+                        self?.publicAppName = appName
+                    }
+                    if let avatar = resDict["avatar_url"] as? String, !avatar.isEmpty {
+                        self?.publicAvatarURL = avatar
+                    }
+                    if let bg = resDict["background_url"] as? String, !bg.isEmpty {
+                        self?.publicBackgroundURL = bg
+                    }
+                    if let getKey = resDict["get_key_url"] as? String, !getKey.isEmpty {
+                        self?.publicGetKeyURL = getKey
+                    }
+                }
+            }
+        }.resume()
     }
     
     func authenticate(key: String) {
@@ -658,7 +726,8 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
             completionHandler(.cancelAuthenticationChallenge, nil)
             return
         }
-        if challenge.protectionSpace.host == "solitudepremium.click" {
+        // ĐÃ THAY ĐỔI DOMAIN CHECK SSL
+        if challenge.protectionSpace.host == "zenisiosvn.io.vn" {
             completionHandler(.useCredential, URLCredential(trust: serverTrust))
         } else {
             completionHandler(.cancelAuthenticationChallenge, nil)
@@ -708,7 +777,8 @@ class SecureNetworkManager: NSObject, URLSessionDelegate {
             completionHandler(.cancelAuthenticationChallenge, nil)
             return
         }
-        if challenge.protectionSpace.host == "solitudepremium.click" {
+        // ĐÃ THAY ĐỔI DOMAIN CHECK SSL
+        if challenge.protectionSpace.host == "zenisiosvn.io.vn" {
             completionHandler(.useCredential, URLCredential(trust: serverTrust))
         } else {
             completionHandler(.cancelAuthenticationChallenge, nil)
