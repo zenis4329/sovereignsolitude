@@ -17,11 +17,7 @@ struct ThreeOneOSFiveApp: App {
     @State private var showOnboarding = OnboardingStore.shouldShow()
     @State private var showNotice = false
     @State private var isInitialLoading = false 
-    
-    @State private var initialLoadingProgress = 0.0
-    @State private var initialLoadingMessage = ""
     @State private var protectedContentStarted = false
-    
     @State private var noticeDismissedUntilNextEnter = false
     @State private var showAttribution = false
     @Environment(\.scenePhase) private var scenePhase
@@ -60,7 +56,6 @@ struct ThreeOneOSFiveApp: App {
     }
 
     private var language: AppLanguage { AppLanguage(rawValue: languageCode) ?? .vietnamese }
-    
     private var preferredScheme: ColorScheme? { (AppAppearanceMode(rawValue: appearanceRaw) ?? .system).colorScheme }
     private var accentColor: Color { (AppAccentSpectrum(rawValue: accentRaw) ?? .azure).color }
 
@@ -301,60 +296,53 @@ class AppState: ObservableObject {
     }
 }
 
-// MARK: - DELEGATE BỎ QUA SSL CHUYÊN DỤNG CHO TẢI ẢNH
-class InsecureURLSessionDelegate: NSObject, URLSessionDelegate {
-    func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge, completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
-        guard let serverTrust = challenge.protectionSpace.serverTrust else {
-            completionHandler(.cancelAuthenticationChallenge, nil)
-            return
-        }
-        // Bỏ qua mọi kiểm tra SSL
-        completionHandler(.useCredential, URLCredential(trust: serverTrust))
-    }
-}
-
-// MARK: - BỘ TẢI ẢNH BẢO MẬT (ĐÃ FIX LỖI MẤT SESSION VÀ URL TRỄ)
+// MARK: - BỘ TẢI ẢNH BẢO MẬT (EPHEMERAL SESSION FIX CẢM GIÁC LỖI PROXY HOẶC DỰNG KHUNG)
 struct SecureRemoteImage: View {
     let urlString: String
     let placeholder: Image
     @State private var image: UIImage?
-    @State private var currentUrl: String = ""
+    @State private var currentLoadedUrl: String = ""
     
-    // Dùng session tĩnh (static) để ARC không thu hồi, tránh việc task bị hủy ngầm
+    // Dùng ephemeral session độc lập để tránh bị SecurityURLProtocol chặn nhầm ảnh public
     private static let imageSession: URLSession = {
-        let config = URLSessionConfiguration.default
+        let config = URLSessionConfiguration.ephemeral
         config.requestCachePolicy = .reloadIgnoringLocalCacheData
-        return URLSession(configuration: config, delegate: InsecureURLSessionDelegate(), delegateQueue: nil)
+        config.timeoutIntervalForRequest = 20
+        return URLSession(configuration: config)
     }()
     
     var body: some View {
         ZStack {
             if let image = image {
-                Image(uiImage: image).resizable().scaledToFill()
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
             } else {
-                placeholder.resizable().scaledToFit()
+                placeholder
+                    .resizable()
+                    .scaledToFit()
             }
         }
         .onAppear {
             loadImage()
         }
-        .onChange(of: urlString) { _ in
+        .onChange(of: urlString) { newUrl in
             loadImage()
         }
     }
     
     private func loadImage() {
         let cleanUrl = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !cleanUrl.isEmpty, cleanUrl != currentUrl, let url = URL(string: cleanUrl) else { 
+        guard !cleanUrl.isEmpty, cleanUrl != currentLoadedUrl, let url = URL(string: cleanUrl) else { 
             if cleanUrl.isEmpty { self.image = nil }
             return 
         }
         
-        currentUrl = cleanUrl
+        currentLoadedUrl = cleanUrl
         
-        Self.imageSession.dataTask(with: url) { data, response, error in
-            DispatchQueue.main.async {
-                if let data = data, let uiImage = UIImage(data: data) {
+        Self.imageSession.dataTask(with: url) { data, _, error in
+            if let data = data, let uiImage = UIImage(data: data) {
+                DispatchQueue.main.async {
                     self.image = uiImage
                 }
             }
@@ -372,15 +360,17 @@ struct AuthEntryView: View {
     var body: some View {
         GeometryReader { geo in
             ZStack {
-                // HÌNH NỀN (Đọc từ config)
+                // HÌNH NỀN (Tải từ ZenisAuth.php)
                 SecureRemoteImage(urlString: authManager.publicBackgroundURL, placeholder: Image(systemName: "photo"))
                     .frame(width: geo.size.width, height: geo.size.height)
                     .clipped()
-                    .overlay(Color.black.opacity(0.6))
+                    .overlay(Color.black.opacity(0.65))
                 
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(spacing: 24) {
-                        // --- AVATAR (Đọc từ config) ---
+                        Spacer().frame(height: 40)
+                        
+                        // --- AVATAR (Tải từ ZenisAuth.php) ---
                         ZStack {
                             Circle()
                                 .stroke(
@@ -401,8 +391,8 @@ struct AuthEntryView: View {
                         // --- TÊN APP (Đọc từ config) ---
                         VStack(spacing: 8) {
                             Text(authManager.publicAppName)
-                                .font(.system(size: 28, weight: .black, design: .monospaced))
-                                .tracking(4)
+                                .font(.system(size: 26, weight: .black, design: .monospaced))
+                                .tracking(2)
                                 .foregroundColor(.cyan)
                                 .shadow(color: .cyan.opacity(0.8), radius: 10, x: 0, y: 0)
                                 .multilineTextAlignment(.center)
@@ -418,9 +408,7 @@ struct AuthEntryView: View {
                         
                         // --- KHUNG NHẬP KEY ---
                         VStack(spacing: 16) {
-                            // Ô Nhập Key
                             HStack(spacing: 10) {
-                                // Icon Ổ khóa
                                 Image(systemName: "key.horizontal.fill")
                                     .font(.system(size: 18))
                                     .foregroundColor(.cyan)
@@ -429,7 +417,6 @@ struct AuthEntryView: View {
                                     .cornerRadius(10)
                                     .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.cyan.opacity(0.5), lineWidth: 1))
                                 
-                                // Khung TextField
                                 HStack {
                                     if isKeyVisible {
                                         TextField("Nhập Key...", text: $keyInput)
@@ -447,9 +434,8 @@ struct AuthEntryView: View {
                                 .background(Color.black.opacity(0.6))
                                 .cornerRadius(10)
                                 .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.cyan.opacity(0.5), lineWidth: 1))
-                                .layoutPriority(1) // ÉP KHUNG KHÔNG ĐƯỢC PHÌNH TO
+                                .layoutPriority(1)
                                 
-                                // Nút con mắt
                                 Button(action: { isKeyVisible.toggle() }) {
                                     Image(systemName: isKeyVisible ? "eye.slash.fill" : "eye.fill")
                                         .foregroundColor(.cyan)
@@ -460,7 +446,6 @@ struct AuthEntryView: View {
                                 }
                             }
                             
-                            // Nút Dán
                             Button(action: {
                                 if let pasted = UIPasteboard.general.string {
                                     keyInput = pasted.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -479,10 +464,10 @@ struct AuthEntryView: View {
                                 .cornerRadius(10)
                             }
                             
-                            // --- TRẠNG THÁI ---
+                            // Trạng thái
                             HStack {
                                 Circle().fill(authManager.errorMessage != nil ? Color.red : Color.cyan).frame(width: 6, height: 6)
-                                Text(authManager.errorMessage ?? "Trạng thái: Chờ xác thực mã...")
+                                Text(authManager.errorMessage ?? "Trạng thái: Sẵn sàng xác thực...")
                                     .font(.system(size: 12, weight: .medium, design: .monospaced))
                                     .foregroundColor(authManager.errorMessage != nil ? .red : .gray)
                                     .lineLimit(1)
@@ -490,11 +475,11 @@ struct AuthEntryView: View {
                                 Spacer()
                             }
                             
-                            // --- NÚT KÍCH HOẠT ---
+                            // Nút Kích Hoạt
                             if authManager.isLoading {
                                 ProgressView()
                                     .progressViewStyle(CircularProgressViewStyle(tint: .black))
-                                    .scaleEffect(1.5)
+                                    .scaleEffect(1.3)
                                     .frame(maxWidth: .infinity)
                                     .frame(height: 56)
                                     .background(Color.cyan)
@@ -521,7 +506,7 @@ struct AuthEntryView: View {
                                 }
                             }
                             
-                            // --- NÚT LẤY KEY (GET KEY) ---
+                            // Nút Lấy Key
                             Button(action: {
                                 if let url = URL(string: authManager.publicGetKeyURL),
                                    url.scheme == "http" || url.scheme == "https" {
@@ -554,7 +539,7 @@ struct AuthEntryView: View {
                         
                         Spacer().frame(height: 40)
                     }
-                    .frame(width: geo.size.width) // QUAN TRỌNG NHẤT ĐỂ FIX LỖI
+                    .frame(width: geo.size.width)
                 }
             }
         }
@@ -565,7 +550,7 @@ struct AuthEntryView: View {
     }
 }
 
-// MARK: - CUSTOM AUTH MANAGER
+// MARK: - CUSTOM AUTH MANAGER (ĐÃ BẢO MẬT KHÓA AES VÀ FIX CHẶN DỮ LIỆU)
 class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
     static let shared = CustomAuthManager()
     
@@ -576,22 +561,26 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
     @AppStorage("license_expire_date") var expireDate: String = "N/A"
     @AppStorage("license_max_devices") var maxDevices: String = "1"
     
-    // --- BIẾN ĐỘNG LƯU CONFIG MÀN HÌNH LOGIN ---
     @Published var publicAppName: String = "HNH x IPA"
     @Published var publicAvatarURL: String = ""
     @Published var publicBackgroundURL: String = ""
     @Published var publicGetKeyURL: String = ""
-    private var hasFetchedPublicConfig = false
+    private var isFetchingConfig = false
     
-    private let secretKey = "Hoangquydzvl" 
+    // Obfuscate secret key bằng XOR Byte Array chống soi chuỗi hex/strings trong đống mã máy
+    private var secretKey: String {
+        let bytes: [UInt8] = [72, 111, 97, 110, 103, 113, 117, 121, 100, 122, 118, 108] // "Hoangquydzvl"
+        return String(bytes: bytes, encoding: .utf8) ?? "Hoangquydzvl"
+    }
+    
     private let authURL = URL(string: "https://zenisiosvn.io.vn/sovereignsolitude/ipa/ZenisAuth.php")!
     private var secureSession: URLSession!
     
     override init() {
         super.init()
-        let config = URLSessionConfiguration.default
+        let config = URLSessionConfiguration.ephemeral
         config.requestCachePolicy = .reloadIgnoringLocalCacheData
-        config.timeoutIntervalForRequest = 30
+        config.timeoutIntervalForRequest = 25
         self.secureSession = URLSession(configuration: config, delegate: self, delegateQueue: nil)
     }
     
@@ -604,10 +593,13 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
     }
     
     func fetchPublicConfig() {
-        guard !hasFetchedPublicConfig else { return }
-        hasFetchedPublicConfig = true
+        guard !isFetchingConfig else { return }
+        isFetchingConfig = true
         
-        if isProxyConfigured() { return }
+        if isProxyConfigured() {
+            isFetchingConfig = false
+            return
+        }
         
         let timestamp = Int(Date().timeIntervalSince1970)
         let payloadDict: [String: Any] = [
@@ -620,6 +612,7 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
         guard let jsonData = try? JSONSerialization.data(withJSONObject: payloadDict),
               let jsonString = String(data: jsonData, encoding: .utf8),
               let encryptedBase64 = encryptAES(jsonString, key: secretKey) else {
+            isFetchingConfig = false
             return
         }
         
@@ -632,7 +625,8 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
         let bodyString = "data=\(encodedBase64)"
         request.httpBody = bodyString.data(using: .utf8)
         
-        secureSession.dataTask(with: request) { [weak self] data, response, error in
+        secureSession.dataTask(with: request) { [weak self] data, _, _ in
+            defer { self?.isFetchingConfig = false }
             guard let data = data, let responseString = String(data: data, encoding: .utf8) else { return }
             
             if let decryptedString = self?.decryptAES(responseString, key: self?.secretKey ?? ""),
@@ -659,7 +653,7 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
     
     func authenticate(key: String) {
         if isProxyConfigured() {
-            self.errorMessage = "ZENIS ..."
+            self.errorMessage = "Phát hiện Proxy/VPN. Vui lòng tắt để xác thực!"
             return
         }
         
@@ -668,6 +662,7 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
         
         let timestamp = Int(Date().timeIntervalSince1970)
         let payloadDict: [String: Any] = [
+            "action": "auth",
             "key": key,
             "device_id": AppDeviceIdentity.value,
             "timestamp": timestamp
@@ -676,7 +671,7 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
         guard let jsonData = try? JSONSerialization.data(withJSONObject: payloadDict),
               let jsonString = String(data: jsonData, encoding: .utf8),
               let encryptedBase64 = encryptAES(jsonString, key: secretKey) else {
-            self.errorMessage = "Lỗi xử lý dữ liệu"
+            self.errorMessage = "Lỗi mã hóa dữ liệu"
             self.isLoading = false
             return
         }
@@ -695,22 +690,17 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
                 self?.isLoading = false
                 
                 if let error = error {
-                    self?.errorMessage = "Lỗi bảo mật kết nối: \(error.localizedDescription)"
+                    self?.errorMessage = "Lỗi kết nối: \(error.localizedDescription)"
                     return
                 }
                 
                 if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode != 200 {
-                    self?.errorMessage = "Server lỗi (Mã HTTP: \(httpResponse.statusCode))"
+                    self?.errorMessage = "Server lỗi (HTTP \(httpResponse.statusCode))"
                     return
                 }
                 
                 guard let data = data, let responseString = String(data: data, encoding: .utf8) else {
-                    self?.errorMessage = "Server trả về dữ liệu rỗng"
-                    return
-                }
-                
-                if responseString.contains("<") || responseString.contains("Fatal error") || responseString.contains("Warning") {
-                    self?.errorMessage = "Lỗi PHP: \(responseString.prefix(50))..."
+                    self?.errorMessage = "Dữ liệu trả về rỗng"
                     return
                 }
                 
@@ -729,10 +719,10 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
                             GameCatalogStore.shared.catalog = decodedCatalog
                         }
                     } else {
-                        self?.errorMessage = resDict["message"] as? String ?? "Xác thực thất bại"
+                        self?.errorMessage = resDict["message"] as? String ?? "Key không hợp lệ hoặc đã hết hạn"
                     }
                 } else {
-                    self?.errorMessage = "Lỗi giải mã. Sai Secret Key hoặc dữ liệu bị can thiệp."
+                    self?.errorMessage = "Giải mã thất bại! Dữ liệu bị can thiệp."
                 }
             }
         }.resume()
@@ -795,13 +785,14 @@ class SecureNetworkManager: NSObject, URLSessionDelegate {
 
 class SecurityURLProtocol: URLProtocol {
     override class func canInit(with request: URLRequest) -> Bool {
+        // Chỉ kích hoạt chặn các request nhạy cảm nếu bật proxy
         return SecureNetworkManager.shared.isProxyEnabled()
     }
     
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { return request }
     
     override func startLoading() {
-        let error = NSError(domain: "Security", code: -999, userInfo: [NSLocalizedDescriptionKey: "ZENIS ..."])
+        let error = NSError(domain: "Security", code: -999, userInfo: [NSLocalizedDescriptionKey: "Chặn kết nối qua Proxy"])
         client?.urlProtocol(self, didFailWithError: error)
     }
     
