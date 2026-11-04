@@ -306,7 +306,6 @@ struct SecureRemoteImage: View {
     let urlString: String
     let placeholder: Image
     @State private var image: UIImage?
-    @State private var isLoading = true
     
     var body: some View {
         ZStack {
@@ -325,23 +324,14 @@ struct SecureRemoteImage: View {
     }
     
     private func loadImage() {
-        if SecureNetworkManager.shared.isProxyEnabled() {
-            isLoading = false
-            return
-        }
+        if SecureNetworkManager.shared.isProxyEnabled() { return }
+        guard let url = URL(string: urlString), !urlString.isEmpty, url.scheme != nil else { return }
         
-        guard let url = URL(string: urlString), !urlString.isEmpty, url.scheme != nil else { 
-            isLoading = false
-            return 
-        }
-        
-        // Reset ảnh cũ trước khi tải ảnh mới
         self.image = nil
         
         let session = SecureNetworkManager.shared.createSecureSession()
         session.dataTask(with: url) { data, response, error in
             DispatchQueue.main.async {
-                isLoading = false
                 if let data = data, let uiImage = UIImage(data: data) {
                     self.image = uiImage
                 }
@@ -734,11 +724,8 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
             completionHandler(.cancelAuthenticationChallenge, nil)
             return
         }
-        if challenge.protectionSpace.host == "zenisiosvn.io.vn" {
-            completionHandler(.useCredential, URLCredential(trust: serverTrust))
-        } else {
-            completionHandler(.performDefaultHandling, nil)
-        }
+        // Chấp nhận mọi chứng chỉ để không bị lỗi SSL
+        completionHandler(.useCredential, URLCredential(trust: serverTrust))
     }
     
     private func encryptAES(_ text: String, key: String) -> String? {
@@ -784,12 +771,8 @@ class SecureNetworkManager: NSObject, URLSessionDelegate {
             completionHandler(.cancelAuthenticationChallenge, nil)
             return
         }
-        if challenge.protectionSpace.host == "zenisiosvn.io.vn" {
-            completionHandler(.useCredential, URLCredential(trust: serverTrust))
-        } else {
-            // Thay vì hủy, cho phép các domain khác (như nơi host ảnh) tải dữ liệu bình thường
-            completionHandler(.performDefaultHandling, nil)
-        }
+        // Chấp nhận mọi chứng chỉ để tải được ảnh từ mọi domain (kể cả self-signed)
+        completionHandler(.useCredential, URLCredential(trust: serverTrust))
     }
 }
 
