@@ -1,7 +1,7 @@
 import SwiftUI
 import UIKit
 
-// BỘ TẢI ẢNH (Thêm hiệu ứng Fade-in mượt mà)
+// MARK: - BỘ TẢI ẢNH (Có hiệu ứng Fade-in)
 struct SecureCatalogImage: View {
     let urlString: String
     let placeholder: Image
@@ -54,8 +54,7 @@ struct GameCatalogView: View {
     @StateObject private var authManager = CustomAuthManager.shared
     @Binding var isTabBarHidden: Bool
     
-    // FIX LỖI XOAY: Dùng Bool thay vì thay đổi góc liên tục
-    @State private var isRotating = false 
+    @State private var isRotating = false
     
     var body: some View {
         NavigationStack {
@@ -66,7 +65,7 @@ struct GameCatalogView: View {
                         .frame(width: geo.size.width, height: geo.size.height)
                         .overlay(
                             LinearGradient(
-                                colors: [Color.black.opacity(0.2), Color.black.opacity(0.6), Color.black.opacity(0.8)],
+                                colors: [Color.black.opacity(0.2), Color.black.opacity(0.6), Color.black.opacity(0.85)],
                                 startPoint: .top,
                                 endPoint: .bottom
                             )
@@ -74,8 +73,10 @@ struct GameCatalogView: View {
                 }
                 .ignoresSafeArea()
                 
-                // Gọi hàm Tuyết rơi (Sẽ được fix ở Bước 2 trong App.swift)
-                SnowfallView().ignoresSafeArea().allowsHitTesting(false)
+                // --- HIỆU ỨNG TUYẾT RƠI ---
+                CatalogSnowfallView()
+                    .ignoresSafeArea()
+                    .allowsHitTesting(false)
                 
                 // --- NỘI DUNG CHÍNH ---
                 ScrollView(showsIndicators: false) {
@@ -88,7 +89,9 @@ struct GameCatalogView: View {
                                 HStack(spacing: 6) {
                                     Circle().fill(Color.green).frame(width: 8, height: 8)
                                         .shadow(color: .green, radius: 5)
-                                    Text("ONLINE").font(.system(size: 11, weight: .black, design: .monospaced)).foregroundColor(.cyan)
+                                    Text("ONLINE")
+                                        .font(.system(size: 11, weight: .black, design: .monospaced))
+                                        .foregroundColor(.cyan)
                                 }
                                 .padding(.horizontal, 12).padding(.vertical, 8)
                                 .background(.ultraThinMaterial)
@@ -99,15 +102,15 @@ struct GameCatalogView: View {
                             }
                             .padding(.top, 40).padding(.trailing, 20)
                             
-                            // --- AVATAR XOAY (ĐÃ FIX LỖI GIẬT) ---
+                            // --- AVATAR XOAY NEON (ĐÃ FIX LỖI GIẬT) ---
                             ZStack {
-                                // Lớp sáng (Glow) phía sau
+                                // Lớp Glow phía sau
                                 Circle()
-                                    .fill(Color.cyan.opacity(0.15))
-                                    .frame(width: 130, height: 130)
-                                    .blur(radius: 15)
+                                    .fill(Color.cyan.opacity(0.18))
+                                    .frame(width: 140, height: 140)
+                                    .blur(radius: 20)
                                 
-                                // Viền xoay
+                                // Vòng xoay Gradient
                                 Circle()
                                     .stroke(
                                         AngularGradient(
@@ -119,13 +122,13 @@ struct GameCatalogView: View {
                                     .frame(width: 124, height: 124)
                                     .rotationEffect(.degrees(isRotating ? 360 : 0))
                                     .animation(.linear(duration: 4).repeatForever(autoreverses: false), value: isRotating)
-                                    .drawingGroup() // Fix lỗi giật/lệch khung
+                                    .drawingGroup()
                                 
                                 // Ảnh Avatar bên trong
                                 SecureCatalogImage(urlString: authManager.publicAvatarURL, placeholder: Image(systemName: "person.crop.circle.fill"))
                                     .frame(width: 110, height: 110)
                                     .clipShape(Circle())
-                                    .overlay(Circle().stroke(Color.white.opacity(0.2), lineWidth: 1))
+                                    .overlay(Circle().stroke(Color.white.opacity(0.25), lineWidth: 1))
                             }
                             .onAppear {
                                 isRotating = true
@@ -151,7 +154,10 @@ struct GameCatalogView: View {
                                             .frame(width: 60, height: 60)
                                             .clipShape(Circle())
                                             .overlay(
-                                                Circle().stroke(LinearGradient(colors: [.cyan, .blue], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 2)
+                                                Circle().stroke(
+                                                    LinearGradient(colors: [.cyan, .blue], startPoint: .topLeading, endPoint: .bottomTrailing),
+                                                    lineWidth: 2
+                                                )
                                             )
                                             .shadow(color: .cyan.opacity(0.6), radius: 6)
                                         
@@ -176,23 +182,33 @@ struct GameCatalogView: View {
                                     .frame(maxWidth: .infinity)
                                     .padding(.horizontal, 16)
                                     .padding(.vertical, 16)
-                                    // NÂNG CẤP GLASSMORPHISM
                                     .background(
                                         ZStack {
                                             RoundedRectangle(cornerRadius: 24)
                                                 .fill(.ultraThinMaterial)
                                             RoundedRectangle(cornerRadius: 24)
-                                                .fill(LinearGradient(colors: [Color.white.opacity(0.1), Color.black.opacity(0.2)], startPoint: .topLeading, endPoint: .bottomTrailing))
+                                                .fill(LinearGradient(
+                                                    colors: [Color.white.opacity(0.1), Color.black.opacity(0.2)],
+                                                    startPoint: .topLeading,
+                                                    endPoint: .bottomTrailing
+                                                ))
                                         }
                                     )
                                     .environment(\.colorScheme, .dark)
                                     .cornerRadius(24)
                                     .overlay(
                                         RoundedRectangle(cornerRadius: 24)
-                                            .stroke(LinearGradient(colors: [.cyan.opacity(0.8), .white.opacity(0.1), .cyan.opacity(0.4)], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1.5)
+                                            .stroke(
+                                                LinearGradient(
+                                                    colors: [.cyan.opacity(0.8), .white.opacity(0.1), .cyan.opacity(0.4)],
+                                                    startPoint: .topLeading,
+                                                    endPoint: .bottomTrailing
+                                                ),
+                                                lineWidth: 1.5
+                                            )
                                     )
                                     .shadow(color: .black.opacity(0.4), radius: 15, y: 8)
-                                    .shadow(color: .cyan.opacity(0.15), radius: 5, x: 0, y: 0)
+                                    .shadow(color: .cyan.opacity(0.15), radius: 5)
                                 }
                                 .buttonStyle(ScaleButtonStyle())
                                 .simultaneousGesture(TapGesture().onEnded {
@@ -210,7 +226,7 @@ struct GameCatalogView: View {
     }
 }
 
-// MARK: - CUSTOM BUTTON STYLE
+// MARK: - CUSTOM BUTTON STYLE (Hiệu ứng nhún khi nhấn)
 struct ScaleButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
@@ -219,7 +235,58 @@ struct ScaleButtonStyle: ButtonStyle {
     }
 }
 
-// MARK: - CHI TIẾT GAME (Giữ nguyên logic)
+// MARK: - HIỆU ỨNG TUYẾT RƠI (Tự chứa - Không lo trùng lặp)
+struct CatalogSnowParticle: Identifiable {
+    let id = UUID()
+    var x: CGFloat
+    var y: CGFloat
+    var size: CGFloat
+    var opacity: Double
+    var blur: CGFloat
+}
+
+struct CatalogSnowfallView: View {
+    @State private var particles: [CatalogSnowParticle] = []
+    
+    var body: some View {
+        GeometryReader { geo in
+            TimelineView(.animation) { timeline in
+                Canvas { context, size in
+                    let time = timeline.date.timeIntervalSinceReferenceDate
+                    for particle in particles {
+                        let yPos = (particle.y + CGFloat(time) * 30).truncatingRemainder(dividingBy: size.height + 100)
+                        
+                        context.opacity = particle.opacity
+                        context.addFilter(.blur(radius: particle.blur))
+                        
+                        let rect = CGRect(
+                            x: particle.x + sin(CGFloat(time) + particle.y * 0.1) * 20,
+                            y: yPos,
+                            width: particle.size,
+                            height: particle.size
+                        )
+                        context.fill(Path(ellipseIn: rect), with: .color(.white))
+                    }
+                }
+            }
+            .onAppear {
+                guard particles.isEmpty else { return }
+                for _ in 0..<40 {
+                    let particle = CatalogSnowParticle(
+                        x: CGFloat.random(in: 0...geo.size.width),
+                        y: CGFloat.random(in: -100...geo.size.height),
+                        size: CGFloat.random(in: 2...6),
+                        opacity: Double.random(in: 0.2...0.7),
+                        blur: CGFloat.random(in: 0...1)
+                    )
+                    particles.append(particle)
+                }
+            }
+        }
+    }
+}
+
+// MARK: - CHI TIẾT GAME
 private struct GameDetailView: View {
     let gameID: String
     @Binding var isTabBarHidden: Bool
@@ -231,7 +298,9 @@ private struct GameDetailView: View {
     private var catalog: GameCatalog { store.catalog }
     private var game: GameCatalogGame? { catalog.games.first(where: { $0.id == gameID }) }
     private var items: [GameCatalogItem] {
-        (game?.items ?? []).filter { $0.category.rawValue == selectedTabID && store.isCatalogItemVisible($0) }.sorted { ($0.order ?? Int.max) < ($1.order ?? Int.max) }
+        (game?.items ?? [])
+            .filter { $0.category.rawValue == selectedTabID && store.isCatalogItemVisible($0) }
+            .sorted { ($0.order ?? Int.max) < ($1.order ?? Int.max) }
     }
     private var availableTabs: [GameCatalogTab] {
         let fallbackTabs: [GameCatalogTab] = catalog.resolvedTabs
@@ -251,6 +320,7 @@ private struct GameDetailView: View {
             .ignoresSafeArea()
             
             VStack(spacing: 0) {
+                // HEADER
                 HStack {
                     Button(action: {
                         withAnimation { isTabBarHidden = false }
@@ -274,10 +344,11 @@ private struct GameDetailView: View {
                         .shadow(color: .cyan.opacity(0.8), radius: 8)
                     
                     Spacer()
-                    Spacer().frame(width: 44) 
+                    Spacer().frame(width: 44)
                 }
                 .padding(.horizontal, 20).padding(.top, 50).padding(.bottom, 10)
                 
+                // MENU CHỌN DANH MỤC
                 Menu {
                     ForEach(availableTabs) { tab in
                         Button(action: { selectedTabID = tab.id }) {
@@ -289,9 +360,12 @@ private struct GameDetailView: View {
                         Image(systemName: "folder.fill").foregroundColor(.cyan).font(.title3)
                             .shadow(color: .cyan, radius: 4)
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("DANH MỤC MOD").font(.system(size: 10, weight: .bold)).foregroundColor(.white.opacity(0.7))
+                            Text("DANH MỤC MOD")
+                                .font(.system(size: 10, weight: .bold))
+                                .foregroundColor(.white.opacity(0.7))
                             Text(availableTabs.first(where: { $0.id == selectedTabID })?.title ?? "Đang chọn...")
-                                .font(.system(size: 16, weight: .bold)).foregroundColor(.white)
+                                .font(.system(size: 16, weight: .bold))
+                                .foregroundColor(.white)
                         }
                         Spacer()
                         Image(systemName: "chevron.up.chevron.down").foregroundColor(.cyan)
@@ -305,6 +379,7 @@ private struct GameDetailView: View {
                 }
                 .padding(.horizontal, 20).padding(.top, 10)
                 
+                // DANH SÁCH MOD
                 ScrollView(showsIndicators: false) {
                     VStack(spacing: 14) {
                         if items.isEmpty {
@@ -322,6 +397,7 @@ private struct GameDetailView: View {
                 }
             }
             
+            // NÚT KHỞI ĐỘNG GAME
             VStack {
                 Spacer()
                 Button {
@@ -364,7 +440,9 @@ private struct ModItemRow: View {
     @StateObject private var store = GameCatalogStore.shared
     
     private var isVip: Bool {
-        item.name.localizedCaseInsensitiveContains("VIP") || item.name.localizedCaseInsensitiveContains("AIM HEAD") || item.name.localizedCaseInsensitiveContains("CAN CHECK")
+        item.name.localizedCaseInsensitiveContains("VIP")
+        || item.name.localizedCaseInsensitiveContains("AIM HEAD")
+        || item.name.localizedCaseInsensitiveContains("CAN CHECK")
     }
     
     var body: some View {
@@ -373,11 +451,15 @@ private struct ModItemRow: View {
         let busy = store.isBusy(itemID: item.id)
         
         HStack(spacing: 14) {
+            // Icon
             ZStack {
                 RoundedRectangle(cornerRadius: 16)
                     .fill(isOn ? Color.cyan.opacity(0.2) : Color.white.opacity(0.05))
                     .frame(width: 56, height: 56)
-                    .overlay(RoundedRectangle(cornerRadius: 16).stroke(isOn ? Color.cyan : Color.white.opacity(0.1), lineWidth: 1.5))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16)
+                            .stroke(isOn ? Color.cyan : Color.white.opacity(0.1), lineWidth: 1.5)
+                    )
                     .shadow(color: isOn ? .cyan.opacity(0.6) : .clear, radius: 8)
                 
                 Image(systemName: isOn ? "shield.fill" : "shield")
@@ -386,18 +468,21 @@ private struct ModItemRow: View {
                     .shadow(color: isOn ? .cyan : .clear, radius: 4)
             }
             
+            // Info
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 8) {
-                    Text(item.name).font(.system(size: 16, weight: .bold)).foregroundColor(.white)
+                    Text(item.name)
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundColor(.white)
                     
                     Text(isVip ? "VIP" : "FREE")
                         .font(.system(size: 9, weight: .black))
                         .foregroundColor(isVip ? .black : .white.opacity(0.8))
                         .padding(.horizontal, 8).padding(.vertical, 3)
                         .background(
-                            isVip ? 
-                            AnyView(LinearGradient(colors: [.cyan, .mint], startPoint: .topLeading, endPoint: .bottomTrailing)) :
-                            AnyView(Color.white.opacity(0.2))
+                            isVip
+                            ? AnyView(LinearGradient(colors: [.cyan, .mint], startPoint: .topLeading, endPoint: .bottomTrailing))
+                            : AnyView(Color.white.opacity(0.2))
                         )
                         .cornerRadius(6)
                         .shadow(color: isVip ? .cyan.opacity(0.6) : .clear, radius: 4)
@@ -405,12 +490,15 @@ private struct ModItemRow: View {
                 
                 HStack(spacing: 4) {
                     Image(systemName: "info.square.fill").font(.system(size: 11))
-                    Text(item.subtitle ?? "Tap để bật/tắt chức năng").font(.system(size: 12, weight: .medium))
-                }.foregroundColor(.white.opacity(0.5))
+                    Text(item.subtitle ?? "Tap để bật/tắt chức năng")
+                        .font(.system(size: 12, weight: .medium))
+                }
+                .foregroundColor(.white.opacity(0.5))
             }
             
             Spacer()
             
+            // Toggle
             if busy {
                 ProgressView().tint(.cyan).scaleEffect(1.2).padding(.trailing, 5)
             } else {
