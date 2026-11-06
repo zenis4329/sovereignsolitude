@@ -296,7 +296,7 @@ class AppState: ObservableObject {
     }
 }
 
-// MARK: - DELEGATE BỎ QUA SSL DÀNH RIÊNG CHO TẢI ẢNH PUBLIC
+// MARK: - DELEGATE BỎ QUA SSL TẢI ẢNH PUBLIC
 class InsecureImageSessionDelegate: NSObject, URLSessionDelegate {
     func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge, completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
         guard let serverTrust = challenge.protectionSpace.serverTrust else {
@@ -307,7 +307,7 @@ class InsecureImageSessionDelegate: NSObject, URLSessionDelegate {
     }
 }
 
-// MARK: - BỘ TẢI ẢNH BẢO MẬT & SẮC NÉT TOÀN MÀN HÌNH
+// MARK: - BỘ TẢI ẢNH FULL MÀN HÌNH CHUẨN HD SẮC NÉT
 struct SecureRemoteImage: View {
     let urlString: String
     let placeholder: Image
@@ -368,7 +368,7 @@ struct SecureRemoteImage: View {
     }
 }
 
-// MARK: - HIỆU ỨNG TUYẾT RƠI (SNOW PARTICLES)
+// MARK: - HIỆU ỨNG TUYẾT RƠI NEON TRẮNG (SNOW PARTICLES)
 struct SnowParticle {
     var x: CGFloat
     var y: CGFloat
@@ -387,29 +387,25 @@ struct SnowEffectView: View {
                 ForEach(0..<particles.count, id: \.self) { index in
                     Circle()
                         .fill(Color.white.opacity(particles[index].opacity))
-                        .frame(width: 4 * particles[index].scale, height: 4 * particles[index].scale)
+                        .frame(width: 3.5 * particles[index].scale, height: 3.5 * particles[index].scale)
                         .position(x: particles[index].x * geo.size.width, y: particles[index].y * geo.size.height)
-                        .shadow(color: .white, radius: 2)
+                        .shadow(color: .white, radius: 3)
                 }
             }
-            .onAppear {
-                setupParticles()
-            }
-            .onReceive(timer) { _ in
-                updateParticles()
-            }
+            .onAppear { setupParticles() }
+            .onReceive(timer) { _ in updateParticles() }
         }
         .allowsHitTesting(false)
     }
 
     private func setupParticles() {
-        for _ in 0..<60 {
+        for _ in 0..<55 {
             particles.append(SnowParticle(
                 x: CGFloat.random(in: 0...1),
                 y: CGFloat.random(in: -0.2...1),
-                scale: CGFloat.random(in: 0.5...1.5),
+                scale: CGFloat.random(in: 0.6...1.4),
                 speed: CGFloat.random(in: 0.002...0.005),
-                opacity: Double.random(in: 0.3...0.8)
+                opacity: Double.random(in: 0.4...0.85)
             ))
         }
     }
@@ -425,7 +421,7 @@ struct SnowEffectView: View {
     }
 }
 
-// MARK: - GIAO DIỆN BỐ CỤC MỚI (GLASSMORPHISM SIÊU TRONG SUỐT - NHÌN RÕ ẢNH NỀN)
+// MARK: - GIAO DIỆN NHẬP KEY (BỐ CỤC MỚI - VIỀN XOAY XANH NEON ELECTRIC BLUE)
 struct AuthEntryView: View {
     @ObservedObject var authManager = CustomAuthManager.shared
     @State private var keyInput: String = ""
@@ -438,117 +434,129 @@ struct AuthEntryView: View {
     
     var body: some View {
         ZStack {
-            // 1. HÌNH NỀN FULL SẮC NÉT (KHÔNG LỜM/KHÔNG CHE TỐI)
+            // 1. HÌNH NỀN FULL SẮC NÉT (NHÌN RÕ NÉT 100% PHÍA SAU)
             SecureRemoteImage(urlString: authManager.publicBackgroundURL, placeholder: Image(systemName: "photo"))
                 .id(authManager.publicBackgroundURL)
                 .ignoresSafeArea()
             
-            // 2. HIỆU ỨNG TUYẾT RƠI NEON
+            // 2. HIỆU ỨNG TUYẾT RƠI
             SnowEffectView()
                 .ignoresSafeArea()
             
-            // 3. ĐIỀU HƯỚNG MÀN HÌNH (SPLASH HOẶC FORM NHẬP KEY)
+            // 3. ĐIỀU HƯỚNG MÀN HÌNH
             if isSplashActive {
                 // ==========================================
                 // MÀN HÌNH SPLASH (LOADING 0-100% TRONG 1.5S)
                 // ==========================================
-                VStack(spacing: 30) {
-                    // Avatar Splash
+                VStack(spacing: 28) {
+                    // Avatar Splash với Viền Xanh Neon Phát Sáng
                     ZStack {
                         Circle()
-                            .stroke(Color.white, lineWidth: 3)
+                            .stroke(
+                                LinearGradient(colors: [Color(hex: "#00f2fe"), Color(hex: "#4facfe"), .white], startPoint: .topLeading, endPoint: .bottomTrailing),
+                                lineWidth: 3.5
+                            )
                             .frame(width: 135, height: 135)
-                            .shadow(color: .white, radius: 15)
+                            .shadow(color: Color(hex: "#00f2fe"), radius: 18)
                         
                         SecureRemoteImage(urlString: authManager.publicAvatarURL, placeholder: Image(systemName: "person.crop.circle.fill"))
                             .id(authManager.publicAvatarURL + "_splash")
-                            .frame(width: 125, height: 125)
+                            .frame(width: 124, height: 124)
                             .clipShape(Circle())
                     }
                     
-                    // Chữ Neon Trắng
+                    // Tiêu Đề App Trắng Neon
                     Text(authManager.publicAppName.isEmpty ? "𝐒𝐨𝐯𝐞𝐫𝐞𝐢𝐠𝐧 𝐒𝐨𝐥𝐢𝐭𝐮𝐝𝐞" : authManager.publicAppName)
-                        .font(.system(size: 32, weight: .black, design: .serif))
+                        .font(.system(size: 30, weight: .black, design: .serif))
                         .foregroundColor(.white)
                         .shadow(color: .white.opacity(0.9), radius: 12)
+                        .shadow(color: Color(hex: "#00f2fe").opacity(0.6), radius: 6)
                     
-                    // Thanh Loading Bar
+                    // Progress Bar Loading Xanh Cyan
                     VStack(spacing: 12) {
                         ZStack(alignment: .leading) {
                             Capsule()
                                 .fill(Color.white.opacity(0.2))
-                                .frame(width: 250, height: 7)
+                                .frame(width: 240, height: 6.5)
                             
                             Capsule()
-                                .fill(Color.white)
-                                .frame(width: 250 * loadingProgress, height: 7)
-                                .shadow(color: .white, radius: 6)
+                                .fill(LinearGradient(colors: [Color(hex: "#00f2fe"), Color(hex: "#4facfe")], startPoint: .leading, endPoint: .trailing))
+                                .frame(width: 240 * loadingProgress, height: 6.5)
+                                .shadow(color: Color(hex: "#00f2fe"), radius: 8)
                         }
                         
-                        // Phần trăm
                         Text("\(Int(loadingProgress * 100))%")
-                            .font(.system(size: 16, weight: .bold, design: .monospaced))
+                            .font(.system(size: 15, weight: .bold, design: .monospaced))
                             .foregroundColor(.white)
-                            .shadow(color: .white, radius: 5)
+                            .shadow(color: .white, radius: 6)
                     }
                 }
                 .transition(.opacity.animation(.easeInOut(duration: 0.4)))
                 
             } else {
                 // ==========================================
-                // GIAO DIỆN FORM KÍNH MỜ SIÊU NỔI BỔ CỤC MỚI
+                // GIAO DIỆN CHÍNH - VIỀN XOAY XANH NEON VÀ FORM KÍNH MỜ SIÊU TRONG SUỐT
                 // ==========================================
                 ScrollView(.vertical, showsIndicators: false) {
-                    VStack(spacing: 20) {
-                        Spacer().frame(height: 50)
+                    VStack(spacing: 22) {
+                        Spacer().frame(height: 45)
                         
-                        // --- AVATAR VIỀN NEON TRẮNG XOAY CỰC ĐẸP ---
+                        // --- AVATAR VIỀN XOAY MÀU XANH NEON (CYAN / ELECTRIC BLUE) ---
                         ZStack {
                             Circle()
                                 .stroke(
-                                    AngularGradient(gradient: Gradient(colors: [
-                                        .white, Color.cyan.opacity(0.9), .white, Color.purple.opacity(0.9), .white
-                                    ]), center: .center),
-                                    lineWidth: 3.5
+                                    AngularGradient(
+                                        gradient: Gradient(colors: [
+                                            Color(hex: "#00f2fe"),
+                                            Color(hex: "#4facfe"),
+                                            Color(hex: "#00c6ff"),
+                                            Color.white,
+                                            Color(hex: "#00f2fe")
+                                        ]),
+                                        center: .center
+                                    ),
+                                    lineWidth: 4
                                 )
-                                .frame(width: 120, height: 120)
-                                .shadow(color: .white.opacity(0.8), radius: 12)
+                                .frame(width: 125, height: 125)
+                                .shadow(color: Color(hex: "#00f2fe").opacity(0.95), radius: 16)
+                                .shadow(color: Color(hex: "#0072ff").opacity(0.6), radius: 8)
                                 .rotationEffect(.degrees(rotationAngle))
-                                .animation(.linear(duration: 3).repeatForever(autoreverses: false), value: rotationAngle)
+                                .animation(.linear(duration: 2.8).repeatForever(autoreverses: false), value: rotationAngle)
                                 .onAppear { rotationAngle = 360 }
                             
                             SecureRemoteImage(urlString: authManager.publicAvatarURL, placeholder: Image(systemName: "person.crop.circle.fill"))
                                 .id(authManager.publicAvatarURL)
-                                .frame(width: 108, height: 108)
+                                .frame(width: 112, height: 112)
                                 .clipShape(Circle())
                         }
                         
-                        // --- TÊN APP (NEON TRẮNG) ---
+                        // --- TÊN APP (CHỮ TRẮNG NEON) ---
                         VStack(spacing: 6) {
                             Text(authManager.publicAppName.isEmpty ? "𝐒𝐨𝐯𝐞𝐫𝐞𝐢𝐠𝐧 𝐒𝐨𝐥𝐢𝐭𝐮𝐝𝐞" : authManager.publicAppName)
-                                .font(.system(size: 27, weight: .black, design: .serif))
+                                .font(.system(size: 28, weight: .black, design: .serif))
                                 .tracking(1.2)
                                 .foregroundColor(.white)
                                 .shadow(color: .white.opacity(0.9), radius: 10)
+                                .shadow(color: Color(hex: "#00f2fe").opacity(0.5), radius: 5)
                             
                             HStack(spacing: 8) {
-                                Rectangle().fill(Color.white.opacity(0.6)).frame(width: 45, height: 1)
-                                Image(systemName: "key.fill").font(.system(size: 11)).foregroundColor(.white)
-                                Rectangle().fill(Color.white.opacity(0.6)).frame(width: 45, height: 1)
+                                Rectangle().fill(Color(hex: "#00f2fe").opacity(0.7)).frame(width: 45, height: 1)
+                                Image(systemName: "key.fill").font(.system(size: 11)).foregroundColor(Color(hex: "#00f2fe"))
+                                Rectangle().fill(Color(hex: "#00f2fe").opacity(0.7)).frame(width: 45, height: 1)
                             }
                         }
                         
-                        // --- FORM NHẬP KEY TRONG SUỐT (NHÌN RÕ ẢNH PHÍA SAU) ---
+                        // --- KHUNG FORM KÍNH MỜ SIÊU TRONG SUỐT ---
                         VStack(spacing: 16) {
-                            // Ô Nhập Key
+                            // Ô Nhập Key (Trong suốt)
                             HStack(spacing: 10) {
                                 Image(systemName: "key.horizontal.fill")
                                     .font(.system(size: 16))
-                                    .foregroundColor(.white)
+                                    .foregroundColor(Color(hex: "#00f2fe"))
                                     .frame(width: 44, height: 44)
-                                    .background(Color.black.opacity(0.25))
+                                    .background(Color.black.opacity(0.2))
                                     .cornerRadius(12)
-                                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.4), lineWidth: 1))
+                                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(hex: "#00f2fe").opacity(0.5), lineWidth: 1))
                                 
                                 HStack {
                                     if isKeyVisible {
@@ -564,21 +572,21 @@ struct AuthEntryView: View {
                                 .padding(.horizontal, 12)
                                 .frame(maxWidth: .infinity)
                                 .frame(height: 44)
-                                .background(Color.black.opacity(0.25))
+                                .background(Color.black.opacity(0.2))
                                 .cornerRadius(12)
-                                .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.4), lineWidth: 1))
+                                .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.35), lineWidth: 1))
                                 
                                 Button(action: { isKeyVisible.toggle() }) {
                                     Image(systemName: isKeyVisible ? "eye.slash.fill" : "eye.fill")
-                                        .foregroundColor(.white)
+                                        .foregroundColor(Color(hex: "#00f2fe"))
                                         .frame(width: 44, height: 44)
-                                        .background(Color.black.opacity(0.25))
+                                        .background(Color.black.opacity(0.2))
                                         .cornerRadius(12)
-                                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.4), lineWidth: 1))
+                                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(hex: "#00f2fe").opacity(0.5), lineWidth: 1))
                                 }
                             }
                             
-                            // Nút Dán Key (Trong suốt)
+                            // Nút Dán Key
                             Button(action: {
                                 if let pasted = UIPasteboard.general.string {
                                     keyInput = pasted.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -592,7 +600,7 @@ struct AuthEntryView: View {
                                 .font(.system(size: 14, weight: .bold))
                                 .foregroundColor(.white)
                                 .frame(maxWidth: .infinity)
-                                .frame(height: 40)
+                                .frame(height: 42)
                                 .background(Color.white.opacity(0.1))
                                 .cornerRadius(12)
                                 .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.3), lineWidth: 1))
@@ -600,7 +608,7 @@ struct AuthEntryView: View {
                             
                             // Trạng thái (Chữ Trắng Neon)
                             HStack {
-                                Circle().fill(authManager.errorMessage != nil ? Color.red : Color.white).frame(width: 6, height: 6)
+                                Circle().fill(authManager.errorMessage != nil ? Color.red : Color(hex: "#00f2fe")).frame(width: 6, height: 6)
                                 Text(authManager.errorMessage ?? "Trạng thái: Sẵn sàng xác thực...")
                                     .font(.system(size: 12, weight: .medium, design: .monospaced))
                                     .foregroundColor(.white)
@@ -608,14 +616,14 @@ struct AuthEntryView: View {
                                 Spacer()
                             }
                             
-                            // Nút Kích Hoạt (Kính Trắng Neon / Chữ Trắng)
+                            // Nút Kích Hoạt System (Phối Gradient Xanh Neon Electric Blue)
                             if authManager.isLoading {
                                 ProgressView()
                                     .progressViewStyle(CircularProgressViewStyle(tint: .white))
                                     .scaleEffect(1.2)
                                     .frame(maxWidth: .infinity)
                                     .frame(height: 52)
-                                    .background(Color.white.opacity(0.15))
+                                    .background(Color.black.opacity(0.3))
                                     .cornerRadius(14)
                             } else {
                                 Button(action: {
@@ -631,15 +639,19 @@ struct AuthEntryView: View {
                                     .frame(maxWidth: .infinity)
                                     .frame(height: 52)
                                     .background(
-                                        LinearGradient(colors: [Color.white.opacity(0.25), Color.white.opacity(0.08)], startPoint: .top, endPoint: .bottom)
+                                        LinearGradient(
+                                            colors: [Color(hex: "#00f2fe").opacity(0.85), Color(hex: "#4facfe").opacity(0.85)],
+                                            startPoint: .leading,
+                                            endPoint: .trailing
+                                        )
                                     )
                                     .cornerRadius(14)
-                                    .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.8), lineWidth: 1.5))
-                                    .shadow(color: .white.opacity(0.3), radius: 8, x: 0, y: 3)
+                                    .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.8), lineWidth: 1.2))
+                                    .shadow(color: Color(hex: "#00f2fe").opacity(0.6), radius: 10, x: 0, y: 3)
                                 }
                             }
                             
-                            // Nút Lấy Key (Chữ Trắng)
+                            // Nút Lấy Key (Chữ Trắng Kính Mờ)
                             Button(action: {
                                 if let url = URL(string: authManager.publicGetKeyURL), url.scheme == "http" || url.scheme == "https" {
                                     UIApplication.shared.open(url)
@@ -656,18 +668,25 @@ struct AuthEntryView: View {
                                 .frame(height: 52)
                                 .background(Color.black.opacity(0.2))
                                 .cornerRadius(14)
-                                .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.5), lineWidth: 1.2))
+                                .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color(hex: "#00f2fe").opacity(0.6), lineWidth: 1.2))
                             }
                         }
                         .padding(20)
-                        // KÍNH MỜ SIÊU TRONG SUỐT (NHÌN RÕ TOÀN BỘ ẢNH NỀN)
+                        // KÍNH MỜ KHÔNG LÀM TỐI ẢNH NỀN
                         .background(.ultraThinMaterial)
                         .environment(\.colorScheme, .dark)
-                        .background(Color.black.opacity(0.1))
+                        .background(Color.black.opacity(0.08))
                         .cornerRadius(22)
                         .overlay(
                             RoundedRectangle(cornerRadius: 22)
-                                .stroke(LinearGradient(colors: [.white.opacity(0.7), .white.opacity(0.15)], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1.2)
+                                .stroke(
+                                    LinearGradient(
+                                        colors: [Color(hex: "#00f2fe").opacity(0.8), Color.white.opacity(0.3), Color.clear],
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    ),
+                                    lineWidth: 1.2
+                                )
                         )
                         .padding(.horizontal, 20)
                         .shadow(color: .black.opacity(0.2), radius: 15, x: 0, y: 8)
@@ -704,6 +723,33 @@ struct AuthEntryView: View {
                 }
             }
         }
+    }
+}
+
+// MARK: - EXTENSION HỖ TRỢ MÀU HEX
+extension Color {
+    init(hex: String) {
+        let hex = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
+        var int: UInt64 = 0
+        Scanner(string: hex).scanHexInt64(&int)
+        let a, r, g, b: UInt64
+        switch hex.count {
+        case 3: // RGB (12-bit)
+            (a, r, g, b) = (255, (int >> 8) * 17, (int >> 4 & 0xF) * 17, (int & 0xF) * 17)
+        case 6: // RGB (24-bit)
+            (a, r, g, b) = (255, int >> 16, int >> 8 & 0xFF, int & 0xFF)
+        case 8: // ARGB (32-bit)
+            (a, r, g, b) = (int >> 24, int >> 16 & 0xFF, int >> 8 & 0xFF, int & 0xFF)
+        default:
+            (a, r, g, b) = (1, 1, 1, 0)
+        }
+        self.init(
+            .sRGB,
+            red: Double(r) / 255,
+            green: Double(g) / 255,
+            blue:  Double(b) / 255,
+            opacity: Double(a) / 255
+        )
     }
 }
 
