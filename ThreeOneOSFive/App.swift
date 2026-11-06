@@ -307,7 +307,7 @@ class InsecureImageSessionDelegate: NSObject, URLSessionDelegate {
     }
 }
 
-// MARK: - BỘ TẢI ẢNH BẢO MẬT (ĐÃ FIX SSL, USER-AGENT VÀ RE-RENDER)
+// MARK: - BỘ TẢI ẢNH BẢO MẬT & SẮC NÉT TOÀN MÀN HÌNH
 struct SecureRemoteImage: View {
     let urlString: String
     let placeholder: Image
@@ -322,15 +322,21 @@ struct SecureRemoteImage: View {
     }()
     
     var body: some View {
-        ZStack {
-            if let image = image {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFill()
-            } else {
-                placeholder
-                    .resizable()
-                    .scaledToFit()
+        GeometryReader { geo in
+            ZStack {
+                if let image = image {
+                    Image(uiImage: image)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .frame(width: geo.size.width, height: geo.size.height)
+                        .clipped()
+                } else {
+                    placeholder
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .frame(width: geo.size.width, height: geo.size.height)
+                        .clipped()
+                }
             }
         }
         .onAppear {
@@ -419,7 +425,7 @@ struct SnowEffectView: View {
     }
 }
 
-// MARK: - GIAO DIỆN NHẬP KEY & SPLASH SCREEN CHÍNH (TOÀN BỘ CHỮ MÀU TRẮNG)
+// MARK: - GIAO DIỆN BỐ CỤC MỚI (GLASSMORPHISM SIÊU TRONG SUỐT - NHÌN RÕ ẢNH NỀN)
 struct AuthEntryView: View {
     @ObservedObject var authManager = CustomAuthManager.shared
     @State private var keyInput: String = ""
@@ -431,250 +437,246 @@ struct AuthEntryView: View {
     @State private var loadingProgress: CGFloat = 0.0
     
     var body: some View {
-        GeometryReader { geo in
-            ZStack {
-                // 1. HÌNH NỀN PHÍA SAU CÙNG (KHÔNG LÀM TỐI ẢNH)
-                SecureRemoteImage(urlString: authManager.publicBackgroundURL, placeholder: Image(systemName: "photo"))
-                    .id(authManager.publicBackgroundURL)
-                    .frame(width: geo.size.width, height: geo.size.height)
-                    .clipped()
-                    .overlay(Color.black.opacity(0.25)) // Độ tối nhẹ giữ nét ảnh
-                    .ignoresSafeArea()
+        ZStack {
+            // 1. HÌNH NỀN FULL SẮC NÉT (KHÔNG LỜM/KHÔNG CHE TỐI)
+            SecureRemoteImage(urlString: authManager.publicBackgroundURL, placeholder: Image(systemName: "photo"))
+                .id(authManager.publicBackgroundURL)
+                .ignoresSafeArea()
+            
+            // 2. HIỆU ỨNG TUYẾT RƠI NEON
+            SnowEffectView()
+                .ignoresSafeArea()
+            
+            // 3. ĐIỀU HƯỚNG MÀN HÌNH (SPLASH HOẶC FORM NHẬP KEY)
+            if isSplashActive {
+                // ==========================================
+                // MÀN HÌNH SPLASH (LOADING 0-100% TRONG 1.5S)
+                // ==========================================
+                VStack(spacing: 30) {
+                    // Avatar Splash
+                    ZStack {
+                        Circle()
+                            .stroke(Color.white, lineWidth: 3)
+                            .frame(width: 135, height: 135)
+                            .shadow(color: .white, radius: 15)
+                        
+                        SecureRemoteImage(urlString: authManager.publicAvatarURL, placeholder: Image(systemName: "person.crop.circle.fill"))
+                            .id(authManager.publicAvatarURL + "_splash")
+                            .frame(width: 125, height: 125)
+                            .clipShape(Circle())
+                    }
+                    
+                    // Chữ Neon Trắng
+                    Text(authManager.publicAppName.isEmpty ? "𝐒𝐨𝐯𝐞𝐫𝐞𝐢𝐠𝐧 𝐒𝐨𝐥𝐢𝐭𝐮𝐝𝐞" : authManager.publicAppName)
+                        .font(.system(size: 32, weight: .black, design: .serif))
+                        .foregroundColor(.white)
+                        .shadow(color: .white.opacity(0.9), radius: 12)
+                    
+                    // Thanh Loading Bar
+                    VStack(spacing: 12) {
+                        ZStack(alignment: .leading) {
+                            Capsule()
+                                .fill(Color.white.opacity(0.2))
+                                .frame(width: 250, height: 7)
+                            
+                            Capsule()
+                                .fill(Color.white)
+                                .frame(width: 250 * loadingProgress, height: 7)
+                                .shadow(color: .white, radius: 6)
+                        }
+                        
+                        // Phần trăm
+                        Text("\(Int(loadingProgress * 100))%")
+                            .font(.system(size: 16, weight: .bold, design: .monospaced))
+                            .foregroundColor(.white)
+                            .shadow(color: .white, radius: 5)
+                    }
+                }
+                .transition(.opacity.animation(.easeInOut(duration: 0.4)))
                 
-                // 2. HIỆU ỨNG TUYẾT RƠI NEON
-                SnowEffectView()
-                    .ignoresSafeArea()
-                
-                // 3. ĐIỀU HƯỚNG MÀN HÌNH (SPLASH HOẶC FORM NHẬP KEY)
-                if isSplashActive {
-                    // ==========================================
-                    // MÀN HÌNH SPLASH (LOADING 0-100% TRONG 1.5S)
-                    // ==========================================
-                    VStack(spacing: 30) {
-                        // Avatar Splash
+            } else {
+                // ==========================================
+                // GIAO DIỆN FORM KÍNH MỜ SIÊU NỔI BỔ CỤC MỚI
+                // ==========================================
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(spacing: 20) {
+                        Spacer().frame(height: 50)
+                        
+                        // --- AVATAR VIỀN NEON TRẮNG XOAY CỰC ĐẸP ---
                         ZStack {
                             Circle()
-                                .stroke(Color.white, lineWidth: 3)
-                                .frame(width: 140, height: 140)
-                                .shadow(color: .white, radius: 15)
+                                .stroke(
+                                    AngularGradient(gradient: Gradient(colors: [
+                                        .white, Color.cyan.opacity(0.9), .white, Color.purple.opacity(0.9), .white
+                                    ]), center: .center),
+                                    lineWidth: 3.5
+                                )
+                                .frame(width: 120, height: 120)
+                                .shadow(color: .white.opacity(0.8), radius: 12)
+                                .rotationEffect(.degrees(rotationAngle))
+                                .animation(.linear(duration: 3).repeatForever(autoreverses: false), value: rotationAngle)
+                                .onAppear { rotationAngle = 360 }
                             
                             SecureRemoteImage(urlString: authManager.publicAvatarURL, placeholder: Image(systemName: "person.crop.circle.fill"))
-                                .id(authManager.publicAvatarURL + "_splash")
-                                .frame(width: 130, height: 130)
+                                .id(authManager.publicAvatarURL)
+                                .frame(width: 108, height: 108)
                                 .clipShape(Circle())
                         }
                         
-                        // Chữ Neon Trắng
-                        Text(authManager.publicAppName.isEmpty ? "𝐒𝐨𝐯𝐞𝐫𝐞𝐢𝐠𝐧 𝐒𝐨𝐥𝐢𝐭𝐮𝐝𝐞" : authManager.publicAppName)
-                            .font(.system(size: 32, weight: .black, design: .serif))
-                            .foregroundColor(.white)
-                            .shadow(color: .white.opacity(0.9), radius: 12)
-                        
-                        // Thanh Loading Bar
-                        VStack(spacing: 12) {
-                            ZStack(alignment: .leading) {
-                                Capsule()
-                                    .fill(Color.white.opacity(0.2))
-                                    .frame(width: 250, height: 8)
-                                
-                                Capsule()
-                                    .fill(Color.white)
-                                    .frame(width: 250 * loadingProgress, height: 8)
-                                    .shadow(color: .white, radius: 6)
-                            }
-                            
-                            // Phần trăm
-                            Text("\(Int(loadingProgress * 100))%")
-                                .font(.system(size: 16, weight: .bold, design: .monospaced))
+                        // --- TÊN APP (NEON TRẮNG) ---
+                        VStack(spacing: 6) {
+                            Text(authManager.publicAppName.isEmpty ? "𝐒𝐨𝐯𝐞𝐫𝐞𝐢𝐠𝐧 𝐒𝐨𝐥𝐢𝐭𝐮𝐝𝐞" : authManager.publicAppName)
+                                .font(.system(size: 27, weight: .black, design: .serif))
+                                .tracking(1.2)
                                 .foregroundColor(.white)
-                                .shadow(color: .white, radius: 5)
+                                .shadow(color: .white.opacity(0.9), radius: 10)
+                            
+                            HStack(spacing: 8) {
+                                Rectangle().fill(Color.white.opacity(0.6)).frame(width: 45, height: 1)
+                                Image(systemName: "key.fill").font(.system(size: 11)).foregroundColor(.white)
+                                Rectangle().fill(Color.white.opacity(0.6)).frame(width: 45, height: 1)
+                            }
                         }
-                    }
-                    .transition(.opacity.animation(.easeInOut(duration: 0.5)))
-                    
-                } else {
-                    // ==========================================
-                    // GIAO DIỆN NHẬP KEY (GLASSMORPHISM & CHỮ TRẮNG)
-                    // ==========================================
-                    ScrollView(.vertical, showsIndicators: false) {
-                        VStack(spacing: 24) {
-                            Spacer().frame(height: 40)
-                            
-                            // --- AVATAR VIỀN XOAY NEON TRẮNG NEON ---
-                            ZStack {
-                                Circle()
-                                    .stroke(
-                                        AngularGradient(gradient: Gradient(colors: [
-                                            .white, .cyan.opacity(0.8), .white, .purple.opacity(0.8), .white
-                                        ]), center: .center),
-                                        lineWidth: 3.5
-                                    )
-                                    .frame(width: 130, height: 130)
-                                    .shadow(color: .white.opacity(0.8), radius: 12)
-                                    .rotationEffect(.degrees(rotationAngle))
-                                    .animation(.linear(duration: 3).repeatForever(autoreverses: false), value: rotationAngle)
-                                    .onAppear { rotationAngle = 360 }
-                                
-                                SecureRemoteImage(urlString: authManager.publicAvatarURL, placeholder: Image(systemName: "person.crop.circle.fill"))
-                                    .id(authManager.publicAvatarURL)
-                                    .frame(width: 118, height: 118)
-                                    .clipShape(Circle())
-                            }
-                            
-                            // --- TÊN APP (CHỮ TRẮNG NEON) ---
-                            VStack(spacing: 8) {
-                                Text(authManager.publicAppName.isEmpty ? "𝐒𝐨𝐯𝐞𝐫𝐞𝐢𝐠𝐧 𝐒𝐨𝐥𝐢𝐭𝐮𝐝𝐞" : authManager.publicAppName)
-                                    .font(.system(size: 28, weight: .black, design: .serif))
-                                    .tracking(1.5)
+                        
+                        // --- FORM NHẬP KEY TRONG SUỐT (NHÌN RÕ ẢNH PHÍA SAU) ---
+                        VStack(spacing: 16) {
+                            // Ô Nhập Key
+                            HStack(spacing: 10) {
+                                Image(systemName: "key.horizontal.fill")
+                                    .font(.system(size: 16))
                                     .foregroundColor(.white)
-                                    .shadow(color: .white.opacity(0.8), radius: 10)
-                                
-                                HStack(spacing: 8) {
-                                    Rectangle().fill(Color.white.opacity(0.6)).frame(width: 50, height: 1)
-                                    Image(systemName: "key.fill").font(.system(size: 12)).foregroundColor(.white)
-                                    Rectangle().fill(Color.white.opacity(0.6)).frame(width: 50, height: 1)
-                                }
-                            }
-                            
-                            // --- FORM NHẬP KEY KÍNH MỜ (GLASSMORPHISM) ---
-                            VStack(spacing: 18) {
-                                // Ô Nhập Key
-                                HStack(spacing: 10) {
-                                    Image(systemName: "key.horizontal.fill")
-                                        .font(.system(size: 18))
-                                        .foregroundColor(.white)
-                                        .frame(width: 48, height: 48)
-                                        .background(Color.black.opacity(0.3))
-                                        .cornerRadius(12)
-                                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.5), lineWidth: 1))
-                                    
-                                    HStack {
-                                        if isKeyVisible {
-                                            TextField("", text: $keyInput, prompt: Text("Nhập Key...").foregroundColor(.white.opacity(0.6)))
-                                                .font(.system(.body, design: .monospaced).weight(.bold))
-                                                .foregroundColor(.white)
-                                        } else {
-                                            SecureField("", text: $keyInput, prompt: Text("Nhập Key...").foregroundColor(.white.opacity(0.6)))
-                                                .font(.system(.body, design: .monospaced).weight(.bold))
-                                                .foregroundColor(.white)
-                                        }
-                                    }
-                                    .padding(.horizontal, 12)
-                                    .frame(maxWidth: .infinity)
-                                    .frame(height: 48)
-                                    .background(Color.black.opacity(0.3))
+                                    .frame(width: 44, height: 44)
+                                    .background(Color.black.opacity(0.25))
                                     .cornerRadius(12)
-                                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.5), lineWidth: 1))
-                                    
-                                    Button(action: { isKeyVisible.toggle() }) {
-                                        Image(systemName: isKeyVisible ? "eye.slash.fill" : "eye.fill")
-                                            .foregroundColor(.white)
-                                            .frame(width: 48, height: 48)
-                                            .background(Color.black.opacity(0.3))
-                                            .cornerRadius(12)
-                                            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.5), lineWidth: 1))
-                                    }
-                                }
+                                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.4), lineWidth: 1))
                                 
-                                // Nút Dán Key (Chữ Trắng)
-                                Button(action: {
-                                    if let pasted = UIPasteboard.general.string {
-                                        keyInput = pasted.trimmingCharacters(in: .whitespacesAndNewlines)
-                                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                                    }
-                                }) {
-                                    HStack {
-                                        Image(systemName: "doc.on.clipboard.fill")
-                                        Text("Dán Key")
-                                    }
-                                    .font(.system(size: 15, weight: .bold))
-                                    .foregroundColor(.white)
-                                    .frame(maxWidth: .infinity)
-                                    .frame(height: 44)
-                                    .background(Color.white.opacity(0.12))
-                                    .cornerRadius(12)
-                                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.3), lineWidth: 1))
-                                }
-                                
-                                // Trạng thái (Chữ Trắng)
                                 HStack {
-                                    Circle().fill(authManager.errorMessage != nil ? Color.red : Color.white).frame(width: 6, height: 6)
-                                    Text(authManager.errorMessage ?? "Trạng thái: Sẵn sàng xác thực...")
-                                        .font(.system(size: 12, weight: .medium, design: .monospaced))
-                                        .foregroundColor(.white)
-                                    Spacer()
-                                }
-                                
-                                // Nút Kích Hoạt (Kính Trắng Neon / Chữ Trắng)
-                                if authManager.isLoading {
-                                    ProgressView()
-                                        .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                                        .scaleEffect(1.3)
-                                        .frame(maxWidth: .infinity)
-                                        .frame(height: 56)
-                                        .background(Color.white.opacity(0.2))
-                                        .cornerRadius(15)
-                                } else {
-                                    Button(action: {
-                                        AudioServicesPlaySystemSound(1104)
-                                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                                        authManager.authenticate(key: keyInput)
-                                    }) {
-                                        HStack(spacing: 10) {
-                                            Image(systemName: "lock.open.fill").font(.headline)
-                                            Text("KÍCH HOẠT HỆ THỐNG").font(.headline.weight(.black)).tracking(1)
-                                        }
-                                        .foregroundColor(.white)
-                                        .frame(maxWidth: .infinity)
-                                        .frame(height: 56)
-                                        .background(
-                                            LinearGradient(colors: [Color.white.opacity(0.3), Color.white.opacity(0.1)], startPoint: .top, endPoint: .bottom)
-                                        )
-                                        .cornerRadius(15)
-                                        .overlay(RoundedRectangle(cornerRadius: 15).stroke(Color.white.opacity(0.8), lineWidth: 1.5))
-                                        .shadow(color: .white.opacity(0.4), radius: 10, x: 0, y: 4)
-                                    }
-                                }
-                                
-                                // Nút Lấy Key (Chữ Trắng)
-                                Button(action: {
-                                    if let url = URL(string: authManager.publicGetKeyURL), url.scheme == "http" || url.scheme == "https" {
-                                        UIApplication.shared.open(url)
+                                    if isKeyVisible {
+                                        TextField("", text: $keyInput, prompt: Text("Nhập Key...").foregroundColor(.white.opacity(0.6)))
+                                            .font(.system(.body, design: .monospaced).weight(.bold))
+                                            .foregroundColor(.white)
                                     } else {
-                                        authManager.errorMessage = "Link Get Key không hợp lệ!"
+                                        SecureField("", text: $keyInput, prompt: Text("Nhập Key...").foregroundColor(.white.opacity(0.6)))
+                                            .font(.system(.body, design: .monospaced).weight(.bold))
+                                            .foregroundColor(.white)
                                     }
+                                }
+                                .padding(.horizontal, 12)
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 44)
+                                .background(Color.black.opacity(0.25))
+                                .cornerRadius(12)
+                                .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.4), lineWidth: 1))
+                                
+                                Button(action: { isKeyVisible.toggle() }) {
+                                    Image(systemName: isKeyVisible ? "eye.slash.fill" : "eye.fill")
+                                        .foregroundColor(.white)
+                                        .frame(width: 44, height: 44)
+                                        .background(Color.black.opacity(0.25))
+                                        .cornerRadius(12)
+                                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.4), lineWidth: 1))
+                                }
+                            }
+                            
+                            // Nút Dán Key (Trong suốt)
+                            Button(action: {
+                                if let pasted = UIPasteboard.general.string {
+                                    keyInput = pasted.trimmingCharacters(in: .whitespacesAndNewlines)
+                                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                                }
+                            }) {
+                                HStack {
+                                    Image(systemName: "doc.on.clipboard.fill")
+                                    Text("Dán Key")
+                                }
+                                .font(.system(size: 14, weight: .bold))
+                                .foregroundColor(.white)
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 40)
+                                .background(Color.white.opacity(0.1))
+                                .cornerRadius(12)
+                                .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.3), lineWidth: 1))
+                            }
+                            
+                            // Trạng thái (Chữ Trắng Neon)
+                            HStack {
+                                Circle().fill(authManager.errorMessage != nil ? Color.red : Color.white).frame(width: 6, height: 6)
+                                Text(authManager.errorMessage ?? "Trạng thái: Sẵn sàng xác thực...")
+                                    .font(.system(size: 12, weight: .medium, design: .monospaced))
+                                    .foregroundColor(.white)
+                                    .shadow(color: .white.opacity(0.5), radius: 3)
+                                Spacer()
+                            }
+                            
+                            // Nút Kích Hoạt (Kính Trắng Neon / Chữ Trắng)
+                            if authManager.isLoading {
+                                ProgressView()
+                                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                    .scaleEffect(1.2)
+                                    .frame(maxWidth: .infinity)
+                                    .frame(height: 52)
+                                    .background(Color.white.opacity(0.15))
+                                    .cornerRadius(14)
+                            } else {
+                                Button(action: {
+                                    AudioServicesPlaySystemSound(1104)
+                                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                                    authManager.authenticate(key: keyInput)
                                 }) {
-                                    HStack(spacing: 8) {
-                                        Image(systemName: "cart.fill")
-                                        Text("LẤY KEY (GET KEY)").font(.headline.weight(.bold))
+                                    HStack(spacing: 10) {
+                                        Image(systemName: "lock.open.fill").font(.headline)
+                                        Text("KÍCH HOẠT HỆ THỐNG").font(.headline.weight(.black)).tracking(1)
                                     }
                                     .foregroundColor(.white)
                                     .frame(maxWidth: .infinity)
-                                    .frame(height: 56)
-                                    .background(Color.black.opacity(0.3))
-                                    .cornerRadius(15)
-                                    .overlay(RoundedRectangle(cornerRadius: 15).stroke(Color.white.opacity(0.6), lineWidth: 1.5))
+                                    .frame(height: 52)
+                                    .background(
+                                        LinearGradient(colors: [Color.white.opacity(0.25), Color.white.opacity(0.08)], startPoint: .top, endPoint: .bottom)
+                                    )
+                                    .cornerRadius(14)
+                                    .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.8), lineWidth: 1.5))
+                                    .shadow(color: .white.opacity(0.3), radius: 8, x: 0, y: 3)
                                 }
                             }
-                            .padding(22)
-                            // HIỆU ỨNG KÍNH MỜ TẬN DỤNG XUYÊN THẤU ẢNH NỀN
-                            .background(.ultraThinMaterial)
-                            .environment(\.colorScheme, .dark)
-                            .background(Color.black.opacity(0.15))
-                            .cornerRadius(25)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 25)
-                                    .stroke(LinearGradient(colors: [.white.opacity(0.8), .white.opacity(0.2), .clear], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1.5)
-                            )
-                            .padding(.horizontal, 20)
-                            .shadow(color: .black.opacity(0.3), radius: 20, x: 0, y: 10)
                             
-                            Spacer().frame(height: 40)
+                            // Nút Lấy Key (Chữ Trắng)
+                            Button(action: {
+                                if let url = URL(string: authManager.publicGetKeyURL), url.scheme == "http" || url.scheme == "https" {
+                                    UIApplication.shared.open(url)
+                                } else {
+                                    authManager.errorMessage = "Link Get Key không hợp lệ!"
+                                }
+                            }) {
+                                HStack(spacing: 8) {
+                                    Image(systemName: "cart.fill")
+                                    Text("LẤY KEY (GET KEY)").font(.headline.weight(.bold))
+                                }
+                                .foregroundColor(.white)
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 52)
+                                .background(Color.black.opacity(0.2))
+                                .cornerRadius(14)
+                                .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.5), lineWidth: 1.2))
+                            }
                         }
-                        .frame(width: geo.size.width)
+                        .padding(20)
+                        // KÍNH MỜ SIÊU TRONG SUỐT (NHÌN RÕ TOÀN BỘ ẢNH NỀN)
+                        .background(.ultraThinMaterial)
+                        .environment(\.colorScheme, .dark)
+                        .background(Color.black.opacity(0.1))
+                        .cornerRadius(22)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 22)
+                                .stroke(LinearGradient(colors: [.white.opacity(0.7), .white.opacity(0.15)], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1.2)
+                        )
+                        .padding(.horizontal, 20)
+                        .shadow(color: .black.opacity(0.2), radius: 15, x: 0, y: 8)
+                        
+                        Spacer().frame(height: 30)
                     }
-                    .transition(.opacity.animation(.easeInOut(duration: 0.5)))
+                    .frame(maxWidth: .infinity)
                 }
+                .transition(.opacity.animation(.easeInOut(duration: 0.4)))
             }
         }
         .onAppear {
