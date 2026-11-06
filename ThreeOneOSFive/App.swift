@@ -947,7 +947,7 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
         guard let sealedBox = try? AES.GCM.seal(data, using: symmetricKey) else { return nil }
         
         var combinedData = Data()
-        combinedData.append(sealedBox.nonce)
+        combinedData.append(Data(sealedBox.nonce))
         combinedData.append(sealedBox.ciphertext)
         combinedData.append(sealedBox.tag)
         return combinedData.base64EncodedString()
