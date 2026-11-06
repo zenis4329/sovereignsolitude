@@ -43,7 +43,7 @@ struct ContentView: View {
         .apexScreenBackground()
     }
 
-    // MARK: - THANH TAB GỌN GÀNG (EXPANDABLE PILL DESIGN)
+    // MARK: - THANH TAB BAR (EXPANDABLE PILL - KÍNH MỜ)
     private var floatingTabBar: some View {
         HStack(spacing: 8) {
             tabButton(icon: "house.fill", title: "Trang chủ", tag: AppSection.home.rawValue)
@@ -54,9 +54,9 @@ struct ContentView: View {
         .background(
             Capsule()
                 .fill(.ultraThinMaterial)
-                .environment(\.colorScheme, .dark) // Ép kính mờ tối màu
-                .overlay(Capsule().stroke(Color.cyan.opacity(0.4), lineWidth: 1))
-                .shadow(color: Color.black.opacity(0.3), radius: 15, x: 0, y: 8)
+                .environment(\.colorScheme, .dark)
+                .overlay(Capsule().stroke(LinearGradient(colors: [.cyan.opacity(0.6), .purple.opacity(0.3)], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1.2))
+                .shadow(color: Color.cyan.opacity(0.15), radius: 15, x: 0, y: 8)
         )
     }
 
@@ -67,28 +67,45 @@ struct ContentView: View {
             withAnimation(.spring(response: 0.4, dampingFraction: 0.7, blendDuration: 0.5)) {
                 tabNavigation.select(tag)
             }
-            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         } label: {
             HStack(spacing: 6) {
                 Image(systemName: icon)
                     .font(.system(size: 18, weight: isSelected ? .bold : .medium))
                 
-                // Chỉ hiện chữ khi Tab được chọn -> Rất gọn gàng
                 if isSelected {
                     Text(title)
                         .font(.system(size: 14, weight: .bold))
                         .lineLimit(1)
                 }
             }
-            .foregroundColor(isSelected ? .cyan : .white.opacity(0.6))
-            .padding(.horizontal, isSelected ? 18 : 12)
-            .padding(.vertical, 10)
+            .foregroundColor(isSelected ? .white : .white.opacity(0.5))
+            .padding(.horizontal, isSelected ? 20 : 14)
+            .padding(.vertical, 12)
             .background(
                 Capsule()
-                    .fill(isSelected ? Color.cyan.opacity(0.2) : Color.clear)
+                    .fill(isSelected ? LinearGradient(colors: [.cyan, .blue], startPoint: .leading, endPoint: .trailing) : LinearGradient(colors: [.clear, .clear], startPoint: .leading, endPoint: .trailing))
+                    .shadow(color: isSelected ? .cyan.opacity(0.5) : .clear, radius: 8, x: 0, y: 4)
             )
         }
         .buttonStyle(.plain)
+    }
+}
+
+// MARK: - EXTENSION TẠO HIỆU ỨNG GLASSMORPHISM SIÊU ĐẸP CHO CÁC CARD
+extension View {
+    func premiumGlassCard() -> some View {
+        self
+            .padding(20)
+            .background(.ultraThinMaterial)
+            .environment(\.colorScheme, .dark) // Giữ nền kính mờ tối màu để làm nổi bật chữ trắng/cyan
+            .background(Color.black.opacity(0.15))
+            .cornerRadius(24)
+            .overlay(
+                RoundedRectangle(cornerRadius: 24)
+                    .stroke(LinearGradient(colors: [.white.opacity(0.6), .white.opacity(0.1)], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1)
+            )
+            .shadow(color: .black.opacity(0.2), radius: 15, x: 0, y: 8)
     }
 }
 
@@ -103,7 +120,6 @@ private struct DashboardView: View {
     @Binding var cleanerEnabled: Bool
     @AppStorage(AppThemePreferences.accentStorageKey) private var accentRaw = AppThemePreferences.defaultAccent.rawValue
 
-    // TỐI ƯU: Khởi tạo DateFormatter 1 lần duy nhất để tránh tràn RAM khi TimelineView chạy mỗi giây
     private static let dateFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
@@ -111,29 +127,27 @@ private struct DashboardView: View {
         return formatter
     }()
 
-    private var accent: AppAccentSpectrum {
-        AppAccentSpectrum(rawValue: accentRaw) ?? .azure
-    }
+    private var accent: AppAccentSpectrum { AppAccentSpectrum(rawValue: accentRaw) ?? .azure }
     
-    // State cho hiệu ứng nhịp thở
     @State private var isBreathing = false
+    @State private var rotationAngle: Double = 0 // Cho viền xoay Avatar
 
     var body: some View {
         NavigationStack {
             ZStack {
                 RemoteAppBackground()
+                
                 ScrollView(showsIndicators: false) {
-                    VStack(spacing: 18) {
+                    VStack(spacing: 22) { // Khoảng cách giữa các thẻ thoáng hơn
                         heroCard
                         licenseMiniWidget
                         deviceCard
                         socialCard
                         
-                        // Spacer đẩy nội dung lên để không bị Tab bar che khuất
-                        Spacer().frame(height: 80)
+                        Spacer().frame(height: 90) // Tránh tabbar che
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.top, 12)
+                    .padding(.horizontal, 18)
+                    .padding(.top, 16)
                 }
                 .background(Color.clear)
             }
@@ -143,8 +157,9 @@ private struct DashboardView: View {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button { showSettings = true } label: {
                         Image(systemName: "gearshape.fill")
-                            .symbolRenderingMode(.hierarchical)
-                            .foregroundColor(accent.color)
+                            .font(.system(size: 18, weight: .bold))
+                            .foregroundColor(.white)
+                            .shadow(color: .white.opacity(0.8), radius: 5)
                     }
                 }
             }
@@ -159,57 +174,77 @@ private struct DashboardView: View {
         }
     }
 
+    // MARK: - AVATAR & TIÊU ĐỀ
     private var heroCard: some View {
-        VStack(spacing: 12) {
-            CachedRemoteImage(url: catalogStore.catalog.brandAvatarURL.flatMap(URL.init(string:))) {
-                AppLogo(size: 100)
-            }
-            .scaledToFill()
-            .frame(width: 100, height: 100)
-            .clipShape(Circle())
-            .overlay(
+        VStack(spacing: 14) {
+            // Avatar Viền Xoay Neon
+            ZStack {
                 Circle()
-                    .stroke(LinearGradient(colors: [accent.color, Color.cyan], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 3)
-            )
-            .shadow(color: accent.color.opacity(isBreathing ? 0.6 : 0.2), radius: isBreathing ? 15 : 5, x: 0, y: 5)
+                    .stroke(
+                        AngularGradient(gradient: Gradient(colors: [.cyan, .purple, .blue, .cyan]), center: .center),
+                        lineWidth: 3.5
+                    )
+                    .frame(width: 110, height: 110)
+                    .shadow(color: .cyan.opacity(0.7), radius: 12)
+                    .rotationEffect(.degrees(rotationAngle))
+                    .animation(.linear(duration: 3).repeatForever(autoreverses: false), value: rotationAngle)
+                    .onAppear { rotationAngle = 360 }
 
-            Text(catalogStore.catalog.brandTitle ?? "Sovereign Solitude")
-                .font(.title2.weight(.black))
-                .tracking(1)
-            
-            Text(catalogStore.catalog.brandSubtitle ?? language.text("dashboard.tagline"))
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+                CachedRemoteImage(url: catalogStore.catalog.brandAvatarURL.flatMap(URL.init(string:))) {
+                    AppLogo(size: 98)
+                }
+                .scaledToFill()
+                .frame(width: 98, height: 98)
+                .clipShape(Circle())
+            }
+
+            VStack(spacing: 4) {
+                Text(catalogStore.catalog.brandTitle ?? "Sovereign Solitude")
+                    .font(.system(size: 26, weight: .black, design: .serif))
+                    .tracking(1.2)
+                    .foregroundColor(.white)
+                    .shadow(color: .white.opacity(0.6), radius: 8)
+                
+                Text(catalogStore.catalog.brandSubtitle ?? language.text("dashboard.tagline"))
+                    .font(.subheadline.weight(.medium))
+                    .foregroundColor(.white.opacity(0.7))
+            }
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 24)
-        .apexCard()
+        .padding(.vertical, 16)
     }
 
+    // MARK: - THẺ LICENSE (Kính Mờ)
     private var licenseMiniWidget: some View {
         TimelineView(.periodic(from: .now, by: 1.0)) { context in
             let remainingTime = calculateRemainingTime(from: authManager.expireDate, currentDate: context.date)
             
-            HStack(spacing: 12) {
-                // TỐI ƯU VÀ SỬA LỖI: Kiểm tra phiên bản iOS để dùng symbolEffect an toàn
+            HStack(spacing: 14) {
                 Group {
                     if #available(iOS 17.0, *) {
                         Image(systemName: "clock.badge.checkmark.fill")
-                            .font(.title2)
-                            .foregroundStyle(accent.color)
+                            .font(.title)
+                            .foregroundStyle(.cyan)
                             .symbolEffect(.pulse, options: .repeating, isActive: remainingTime != "Hết Hạn")
                     } else {
-                        // Fallback cho iOS 16 trở xuống
                         Image(systemName: "clock.badge.checkmark.fill")
-                            .font(.title2)
-                            .foregroundStyle(accent.color)
+                            .font(.title)
+                            .foregroundStyle(.cyan)
                             .opacity(isBreathing && remainingTime != "Hết Hạn" ? 0.6 : 1.0)
                     }
                 }
                 
-                Text(remainingTime)
-                    .font(.system(.body, design: .monospaced).weight(.bold))
-                    .foregroundColor(remainingTime == "Hết Hạn" ? .red : .primary)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Thời Gian Còn Lại")
+                        .font(.caption2.weight(.bold))
+                        .foregroundColor(.white.opacity(0.6))
+                        .textCase(.uppercase)
+                    
+                    Text(remainingTime)
+                        .font(.system(.title3, design: .monospaced).weight(.black))
+                        .foregroundColor(remainingTime == "Hết Hạn" ? .red : .white)
+                        .shadow(color: remainingTime == "Hết Hạn" ? .red.opacity(0.5) : .white.opacity(0.5), radius: 5)
+                }
                 
                 Spacer()
                 
@@ -223,26 +258,27 @@ private struct DashboardView: View {
                         withAnimation { licenseKeyCopied = false }
                     }
                 } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: licenseKeyCopied ? "checkmark.circle.fill" : "doc.on.doc.fill")
-                        Text(licenseKeyCopied ? "Đã chép" : "Copy Key")
+                    HStack(spacing: 4) {
+                        Image(systemName: licenseKeyCopied ? "checkmark" : "doc.on.doc.fill")
+                        if licenseKeyCopied {
+                            Text("Đã chép").font(.caption.weight(.bold))
+                        }
                     }
-                    .font(.caption.weight(.bold))
-                    .foregroundStyle(licenseKeyCopied ? .white : accent.color)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
-                    .background(licenseKeyCopied ? Color.green : Color(uiColor: .secondarySystemBackground))
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundColor(.white)
+                    .padding(.horizontal, licenseKeyCopied ? 12 : 14)
+                    .padding(.vertical, 12)
+                    .background(
+                        licenseKeyCopied 
+                        ? LinearGradient(colors: [.green, .mint], startPoint: .leading, endPoint: .trailing) 
+                        : LinearGradient(colors: [.cyan, .blue], startPoint: .leading, endPoint: .trailing)
+                    )
                     .cornerRadius(12)
+                    .shadow(color: licenseKeyCopied ? .green.opacity(0.5) : .cyan.opacity(0.5), radius: 6, x: 0, y: 3)
                 }
                 .buttonStyle(.plain)
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 14)
-            .background(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(Color(uiColor: .secondarySystemBackground).opacity(0.6))
-                    .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(accent.color.opacity(0.3), lineWidth: 1.5))
-            )
+            .premiumGlassCard() // Gọi hàm Kính mờ siêu đẹp
         }
     }
 
@@ -260,72 +296,101 @@ private struct DashboardView: View {
         return days > 0 ? "\(days) ngày \(hrs) giờ" : (hrs > 0 ? String(format: "%02d:%02d:%02d", hrs, mins, secs) : String(format: "%02d:%02d", mins, secs))
     }
 
+    // MARK: - THẺ THÔNG TIN THIẾT BỊ
     private var deviceCard: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 16) {
             sectionHeader(title: language.text("common.device"), systemImage: "iphone.gen3")
-            metricRow(title: language.text("settings.device"), value: AppInfo.hardwareDisplayName)
-            Divider().opacity(0.5)
-            metricRow(title: language.text("settings.ios_version"), value: "\(AppInfo.osVersion) (\(AppInfo.osBuild))")
-            Divider().opacity(0.5)
-            HStack {
-                Text(language.text("settings.compatibility")).foregroundStyle(.secondary)
-                Spacer()
-                StatusBadge(text: language.text(appState.isSupported ? "settings.supported" : "settings.unsupported"), tone: appState.isSupported ? .success : .danger)
+            
+            VStack(spacing: 12) {
+                metricRow(title: language.text("settings.device"), value: AppInfo.hardwareDisplayName)
+                Divider().background(Color.white.opacity(0.2))
+                metricRow(title: language.text("settings.ios_version"), value: "\(AppInfo.osVersion) (\(AppInfo.osBuild))")
+                Divider().background(Color.white.opacity(0.2))
+                
+                HStack {
+                    Text(language.text("settings.compatibility")).foregroundStyle(.white.opacity(0.7))
+                    Spacer()
+                    // Huy hiệu Status xanh lá/đỏ
+                    Text(language.text(appState.isSupported ? "settings.supported" : "settings.unsupported"))
+                        .font(.caption.weight(.bold))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
+                        .background(appState.isSupported ? Color.green.opacity(0.8) : Color.red.opacity(0.8))
+                        .cornerRadius(8)
+                }
             }
         }
-        .padding(.vertical, 4)
-        .apexCard()
+        .premiumGlassCard()
     }
 
+    // MARK: - THẺ MẠNG XÃ HỘI
     private var socialCard: some View {
-        linkCard(title: language.text("settings.social_media"), icon: "bubble.left.and.bubble.right.fill", rows: catalogStore.catalog.resolvedSocialLinks)
+        linkCard(title: language.text("settings.social_media"), icon: "network", rows: catalogStore.catalog.resolvedSocialLinks)
     }
 
     private func linkCard(title: String, icon: String, rows: [RemoteProfileLink]) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            sectionHeader(title: title, systemImage: icon).padding(.bottom, 6)
-            ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
-                if index > 0 { Divider().opacity(0.4).padding(.vertical, 4) }
-                Button {
-                    if let url = URL(string: row.url) { UIApplication.shared.open(url) }
-                } label: {
-                    HStack(spacing: 12) {
-                        Image(systemName: "link.circle.fill")
-                            .font(.title2)
-                            .foregroundStyle(accent.color)
+        VStack(alignment: .leading, spacing: 16) {
+            sectionHeader(title: title, systemImage: icon)
+            
+            VStack(spacing: 14) {
+                ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
+                    if index > 0 { Divider().background(Color.white.opacity(0.2)) }
+                    Button {
+                        if let url = URL(string: row.url) { UIApplication.shared.open(url) }
+                    } label: {
+                        HStack(spacing: 14) {
+                            // Icon Link dạng vòng tròn nổi bật
+                            ZStack {
+                                Circle().fill(Color.cyan.opacity(0.2)).frame(width: 36, height: 36)
+                                Image(systemName: "link")
+                                    .font(.system(size: 16, weight: .bold))
+                                    .foregroundColor(.cyan)
+                            }
+                                
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(row.name).font(.body.weight(.bold)).foregroundColor(.white)
+                                Text(row.role).font(.caption.weight(.medium)).foregroundColor(.white.opacity(0.6))
+                            }
                             
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(row.name).font(.body.weight(.semibold)).foregroundStyle(.primary)
-                            Text(row.role).font(.caption).foregroundStyle(.secondary)
+                            Spacer()
+                            
+                            Image(systemName: "chevron.right")
+                                .font(.caption.bold())
+                                .foregroundColor(.white.opacity(0.4))
                         }
-                        Spacer()
-                        Image(systemName: "arrow.up.right")
-                            .font(.caption.bold())
-                            .foregroundStyle(.secondary)
+                        .contentShape(Rectangle())
                     }
-                    .contentShape(Rectangle())
-                    .padding(.vertical, 4)
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
             }
-        }.apexCard()
+        }
+        .premiumGlassCard()
     }
 
+    // MARK: - COMPONENT DÙNG CHUNG
     private func sectionHeader(title: String, systemImage: String) -> some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 10) {
             Image(systemName: systemImage)
-                .font(.subheadline.weight(.bold))
-                .foregroundStyle(accent.color)
-            Text(title).font(.subheadline.weight(.bold))
+                .font(.title3.weight(.bold))
+                .foregroundStyle(.cyan)
+                .shadow(color: .cyan.opacity(0.6), radius: 5)
+            
+            Text(title)
+                .font(.headline.weight(.black))
+                .foregroundColor(.white)
             Spacer()
         }
     }
 
     private func metricRow(title: String, value: String) -> some View {
         HStack(alignment: .firstTextBaseline) {
-            Text(title).foregroundStyle(.secondary)
+            Text(title).foregroundStyle(.white.opacity(0.7))
             Spacer(minLength: 12)
-            Text(value).font(.body.weight(.semibold)).multilineTextAlignment(.trailing)
+            Text(value)
+                .font(.body.weight(.bold))
+                .foregroundColor(.white)
+                .multilineTextAlignment(.trailing)
         }
     }
 }
