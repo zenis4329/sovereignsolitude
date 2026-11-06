@@ -1,7 +1,7 @@
 import SwiftUI
 import UIKit
 
-// MARK: - BỘ TẢI ẢNH (Thêm hiệu ứng Fade-in mượt mà)
+// BỘ TẢI ẢNH (Thêm hiệu ứng Fade-in mượt mà)
 struct SecureCatalogImage: View {
     let urlString: String
     let placeholder: Image
@@ -64,7 +64,6 @@ struct GameCatalogView: View {
                 GeometryReader { geo in
                     SecureCatalogImage(urlString: authManager.publicBackgroundURL, placeholder: Image(systemName: "photo"))
                         .frame(width: geo.size.width, height: geo.size.height)
-                        // Nâng cấp Overlay: Thêm Gradient để nền bớt chói và làm nổi bật UI
                         .overlay(
                             LinearGradient(
                                 colors: [Color.black.opacity(0.2), Color.black.opacity(0.6), Color.black.opacity(0.8)],
@@ -75,7 +74,7 @@ struct GameCatalogView: View {
                 }
                 .ignoresSafeArea()
                 
-                // Hiệu ứng Tuyết rơi (Gọi hàm bên dưới)
+                // Gọi hàm Tuyết rơi (Sẽ được fix ở Bước 2 trong App.swift)
                 SnowfallView().ignoresSafeArea().allowsHitTesting(false)
                 
                 // --- NỘI DUNG CHÍNH ---
@@ -100,7 +99,7 @@ struct GameCatalogView: View {
                             }
                             .padding(.top, 40).padding(.trailing, 20)
                             
-                            // --- AVATAR XOAY (ĐÃ FIX LỖI) ---
+                            // --- AVATAR XOAY (ĐÃ FIX LỖI GIẬT) ---
                             ZStack {
                                 // Lớp sáng (Glow) phía sau
                                 Circle()
@@ -118,10 +117,9 @@ struct GameCatalogView: View {
                                         lineWidth: 4
                                     )
                                     .frame(width: 124, height: 124)
-                                    // Cách fix: Xoay vòng tròn dựa trên state bool, dùng drawingGroup để khử răng cưa
                                     .rotationEffect(.degrees(isRotating ? 360 : 0))
                                     .animation(.linear(duration: 4).repeatForever(autoreverses: false), value: isRotating)
-                                    .drawingGroup() // Cực kỳ quan trọng để viền không bị giật khi xoay
+                                    .drawingGroup() // Fix lỗi giật/lệch khung
                                 
                                 // Ảnh Avatar bên trong
                                 SecureCatalogImage(urlString: authManager.publicAvatarURL, placeholder: Image(systemName: "person.crop.circle.fill"))
@@ -130,7 +128,7 @@ struct GameCatalogView: View {
                                     .overlay(Circle().stroke(Color.white.opacity(0.2), lineWidth: 1))
                             }
                             .onAppear {
-                                isRotating = true // Kích hoạt xoay
+                                isRotating = true
                             }
                             
                             // Tên App
@@ -194,9 +192,9 @@ struct GameCatalogView: View {
                                             .stroke(LinearGradient(colors: [.cyan.opacity(0.8), .white.opacity(0.1), .cyan.opacity(0.4)], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1.5)
                                     )
                                     .shadow(color: .black.opacity(0.4), radius: 15, y: 8)
-                                    .shadow(color: .cyan.opacity(0.15), radius: 5, x: 0, y: 0) // Glow nhẹ
+                                    .shadow(color: .cyan.opacity(0.15), radius: 5, x: 0, y: 0)
                                 }
-                                .buttonStyle(ScaleButtonStyle()) // Custom Button Style (Xem bên dưới)
+                                .buttonStyle(ScaleButtonStyle())
                                 .simultaneousGesture(TapGesture().onEnded {
                                     withAnimation { isTabBarHidden = true }
                                 })
@@ -212,7 +210,7 @@ struct GameCatalogView: View {
     }
 }
 
-// MARK: - CUSTOM BUTTON STYLE (Hiệu ứng nhấn nút)
+// MARK: - CUSTOM BUTTON STYLE
 struct ScaleButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
@@ -221,57 +219,7 @@ struct ScaleButtonStyle: ButtonStyle {
     }
 }
 
-// MARK: - HIỆU ỨNG TUYẾT RƠI (Snowfall)
-struct SnowfallView: View {
-    @State private var particles: [SnowParticle] = []
-    
-    var body: some View {
-        GeometryReader { geo in
-            ZStack {
-                ForEach(particles) { particle in
-                    Circle()
-                        .fill(Color.white.opacity(particle.opacity))
-                        .frame(width: particle.size, height: particle.size)
-                        .position(x: particle.x, y: particle.y)
-                        .blur(radius: particle.blur)
-                }
-            }
-            .onAppear {
-                for _ in 0..<40 {
-                    let particle = SnowParticle(
-                        x: CGFloat.random(in: 0...geo.size.width),
-                        y: CGFloat.random(in: -100...0),
-                        size: CGFloat.random(in: 2...6),
-                        opacity: Double.random(in: 0.2...0.7),
-                        blur: CGFloat.random(in: 0...1)
-                    )
-                    particles.append(particle)
-                    animateParticle(particle, height: geo.size.height)
-                }
-            }
-        }
-    }
-    
-    private func animateParticle(_ particle: SnowParticle, height: CGFloat) {
-        guard let index = particles.firstIndex(where: { $0.id == particle.id }) else { return }
-        
-        withAnimation(.linear(duration: Double.random(in: 4...8)).repeatForever(autoreverses: false)) {
-            particles[index].y = height + 50
-            particles[index].x += CGFloat.random(in: -50...50)
-        }
-    }
-}
-
-struct SnowParticle: Identifiable {
-    let id = UUID()
-    var x: CGFloat
-    var y: CGFloat
-    var size: CGFloat
-    var opacity: Double
-    var blur: CGFloat
-}
-
-// MARK: - CHI TIẾT GAME (Giữ nguyên logic của bạn, tinh chỉnh UI)
+// MARK: - CHI TIẾT GAME (Giữ nguyên logic)
 private struct GameDetailView: View {
     let gameID: String
     @Binding var isTabBarHidden: Bool
