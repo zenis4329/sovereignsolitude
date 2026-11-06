@@ -772,7 +772,6 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
     private var isFetchingConfig = false
     
     private var secretKey: String {
-        // [72, 111, 97, 110, 103, 113, 117, 121, 100, 122, 118, 108] => "Hoangquydzvl"
         let bytes: [UInt8] = [72, 111, 97, 110, 103, 113, 117, 121, 100, 122, 118, 108]
         return String(bytes: bytes, encoding: .utf8) ?? "Hoangquydzvl"
     }
@@ -981,7 +980,7 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
 class SecureNetworkManager: NSObject, URLSessionDelegate {
     static let shared = SecureNetworkManager()
     
-    func funcisProxyEnabled() -> Bool {
+    func isProxyEnabled() -> Bool {
         guard let proxySettings = CFNetworkCopySystemProxySettings()?.takeRetainedValue() as? [String: Any] else { return false }
         if let http = proxySettings["HTTPProxy"] as? String, !http.isEmpty { return true }
         if let https = proxySettings["HTTPSProxy"] as? String, !https.isEmpty { return true }
@@ -998,7 +997,7 @@ class SecureNetworkManager: NSObject, URLSessionDelegate {
     }
     
     func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge, completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
-        if funcisProxyEnabled() {
+        if isProxyEnabled() {
             completionHandler(.cancelAuthenticationChallenge, nil)
             return
         }
@@ -1013,7 +1012,7 @@ class SecureNetworkManager: NSObject, URLSessionDelegate {
 
 class SecurityURLProtocol: URLProtocol {
     override class func canInit(with request: URLRequest) -> Bool {
-        return SecureNetworkManager.shared.funcisProxyEnabled()
+        return SecureNetworkManager.shared.isProxyEnabled()
     }
     
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { return request }
