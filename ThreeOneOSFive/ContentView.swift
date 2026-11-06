@@ -115,7 +115,7 @@ private struct DashboardView: View {
         AppAccentSpectrum(rawValue: accentRaw) ?? .azure
     }
     
-    // State cho hiệu ứng nhịp thở của Avatar
+    // State cho hiệu ứng nhịp thở
     @State private var isBreathing = false
 
     var body: some View {
@@ -190,12 +190,22 @@ private struct DashboardView: View {
         TimelineView(.periodic(from: .now, by: 1.0)) { context in
             let remainingTime = calculateRemainingTime(from: authManager.expireDate, currentDate: context.date)
             
-            // TỐI ƯU: Đã xóa bỏ AnyView ở đây giúp Swift render nhanh hơn
             HStack(spacing: 12) {
-                Image(systemName: "clock.badge.checkmark.fill")
-                    .font(.title2)
-                    .foregroundStyle(accent.color)
-                    .symbolEffect(.pulse, options: .repeating, isActive: remainingTime != "Hết Hạn")
+                // TỐI ƯU VÀ SỬA LỖI: Kiểm tra phiên bản iOS để dùng symbolEffect an toàn
+                Group {
+                    if #available(iOS 17.0, *) {
+                        Image(systemName: "clock.badge.checkmark.fill")
+                            .font(.title2)
+                            .foregroundStyle(accent.color)
+                            .symbolEffect(.pulse, options: .repeating, isActive: remainingTime != "Hết Hạn")
+                    } else {
+                        // Fallback cho iOS 16 trở xuống
+                        Image(systemName: "clock.badge.checkmark.fill")
+                            .font(.title2)
+                            .foregroundStyle(accent.color)
+                            .opacity(isBreathing && remainingTime != "Hết Hạn" ? 0.6 : 1.0)
+                    }
+                }
                 
                 Text(remainingTime)
                     .font(.system(.body, design: .monospaced).weight(.bold))
@@ -237,7 +247,6 @@ private struct DashboardView: View {
     }
 
     private func calculateRemainingTime(from dateStr: String, currentDate: Date) -> String {
-        // Sử dụng DateFormatter tĩnh được tạo sẵn ở trên
         guard let expDate = Self.dateFormatter.date(from: dateStr) else { return "Không xác định" }
         let diff = Int(expDate.timeIntervalSince(currentDate))
         
