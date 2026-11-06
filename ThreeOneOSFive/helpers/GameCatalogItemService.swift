@@ -78,9 +78,9 @@ enum GameCatalogItemService {
     }
 
     static func ensureLocalPackage(itemID: String, remoteURL: URL) async throws -> URL {
-        // CHỈ HIỆN "ZENIS ..." KHI PHÁT HIỆN PROXY
-        if SecureNetworkManager.shared.isProxyEnabled() {
-            throw NSError(domain: "Security", code: -999, userInfo: [NSLocalizedDescriptionKey: "ZENIS ..."])
+        // Kiểm tra Proxy và chống Debug an toàn
+        if SecureNetworkManager.shared.isProxyEnabled() || AntiDebug.isDebuggerAttached() {
+            throw NSError(domain: "Security", code: -999, userInfo: [NSLocalizedDescriptionKey: "Phát hiện Proxy/Debug! Hủy tải file."])
         }
 
         let localURL = try localPackageURL(itemID: itemID)
@@ -95,8 +95,18 @@ enum GameCatalogItemService {
         var request = URLRequest(url: remoteURL)
         request.httpMethod = "GET"
         
-        request.setValue(CustomAuthManager.shared.savedKey, forHTTPHeaderField: "X-License-Key")
-        request.setValue(AppDeviceIdentity.value, forHTTPHeaderField: "X-Device-ID")
+        // Lấy Key và DeviceID hiện tại
+        let currentKey = CustomAuthManager.shared.savedKey
+        let deviceId = AppDeviceIdentity.value
+        
+        // Sinh mã Token động 30 giây khớp với file sovereignsolitude.php trên Server
+        let dynamicToken = SecurityTokenGenerator.generate30sToken(key: currentKey, deviceId: deviceId)
+        
+        // Đính kèm các Header bảo mật bắt buộc
+        request.setValue(currentKey, forHTTPHeaderField: "X-License-Key")
+        request.setValue(deviceId, forHTTPHeaderField: "X-Device-ID")
+        request.setValue(dynamicToken, forHTTPHeaderField: "X-Dynamic-Token")
+        request.setValue("SolitudeApp-v3105-Secured", forHTTPHeaderField: "User-Agent")
         
         let secureSession = SecureNetworkManager.shared.createSecureSession()
         let (temporaryURL, response) = try await secureSession.download(for: request)
@@ -104,8 +114,8 @@ enum GameCatalogItemService {
         defer { try? FileManager.default.removeItem(at: temporaryURL) }
         
         if let http = response as? HTTPURLResponse {
-            if http.statusCode == 403 {
-                throw NSError(domain: "Security", code: 403, userInfo: [NSLocalizedDescriptionKey: "ZENIS ..."])
+            if http.statusCode == 401 || http.statusCode == 403 {
+                throw NSError(domain: "Security", code: http.statusCode, userInfo: [NSLocalizedDescriptionKey: "Sai Key/Token hoặc bị chặn bởi máy chủ!"])
             }
             if !(200...299).contains(http.statusCode) {
                 throw PatchPackageError.remoteImportFailed
