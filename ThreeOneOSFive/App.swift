@@ -331,9 +331,9 @@ class InsecureImageSessionDelegate: NSObject, URLSessionDelegate {
     }
 }
 
-// MARK: - BỘ TẢI ẢNH FULL MÀN HÌNH CHUẨN HD SẮC NÉT
+// MARK: - BỘ TẢI ẢNH FULL MÀN HÌNH CHUẨN HD SẮC NÉT (ĐÃ FIX LỖI CACHE/UPDATE URL)
 struct SecureRemoteImage: View {
-    let urlString: String
+    var urlString: String
     let placeholder: Image
     @State private var image: UIImage?
     
@@ -354,6 +354,7 @@ struct SecureRemoteImage: View {
                         .aspectRatio(contentMode: .fill)
                         .frame(width: geo.size.width, height: geo.size.height)
                         .clipped()
+                        .transition(.opacity)
                 } else {
                     placeholder
                         .resizable()
@@ -362,19 +363,20 @@ struct SecureRemoteImage: View {
                         .clipped()
                 }
             }
+            .animation(.easeInOut, value: image)
         }
         .onAppear {
-            loadImage()
+            loadImage(from: urlString)
         }
-        .onChange(of: urlString) { _ in
-            loadImage()
+        .onChange(of: urlString) { newUrl in
+            loadImage(from: newUrl)
         }
     }
     
-    private func loadImage() {
+    private func loadImage(from urlString: String) {
         let cleanUrl = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanUrl.isEmpty, let url = URL(string: cleanUrl) else { 
-            if cleanUrl.isEmpty { self.image = nil }
+            if cleanUrl.isEmpty { DispatchQueue.main.async { self.image = nil } }
             return 
         }
         
@@ -459,7 +461,6 @@ struct AuthEntryView: View {
     var body: some View {
         ZStack {
             SecureRemoteImage(urlString: authManager.publicBackgroundURL, placeholder: Image(systemName: "photo"))
-                .id(authManager.publicBackgroundURL)
                 .ignoresSafeArea()
             
             SnowEffectView()
@@ -477,7 +478,6 @@ struct AuthEntryView: View {
                             .shadow(color: Color(hex: "#00f2fe"), radius: 18)
                         
                         SecureRemoteImage(urlString: authManager.publicAvatarURL, placeholder: Image(systemName: "person.crop.circle.fill"))
-                            .id(authManager.publicAvatarURL + "_splash")
                             .frame(width: 124, height: 124)
                             .clipShape(Circle())
                     }
@@ -535,7 +535,6 @@ struct AuthEntryView: View {
                                 .onAppear { rotationAngle = 360 }
                             
                             SecureRemoteImage(urlString: authManager.publicAvatarURL, placeholder: Image(systemName: "person.crop.circle.fill"))
-                                .id(authManager.publicAvatarURL)
                                 .frame(width: 112, height: 112)
                                 .clipShape(Circle())
                         }
@@ -773,7 +772,7 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
     private var isFetchingConfig = false
     
     private var secretKey: String {
-        // [72, 111, 97, 110, 103, 113, ...] -> 113 là chữ 'q' khớp với Hoangquydzvl ở PHP
+        // [72, 111, 97, 110, 103, 113, 117, 121, 100, 122, 118, 108] => "Hoangquydzvl"
         let bytes: [UInt8] = [72, 111, 97, 110, 103, 113, 117, 121, 100, 122, 118, 108]
         return String(bytes: bytes, encoding: .utf8) ?? "Hoangquydzvl"
     }
@@ -964,7 +963,6 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
         let keyHash = SHA256.hash(data: Data(key.utf8))
         let symmetricKey = SymmetricKey(data: keyHash)
         
-        // Ép kiểu về Data độc lập (index bắt đầu từ 0) để không bị lỗi slice CryptoKit
         let nonceData = Data(data.prefix(12))
         let tagData = Data(data.suffix(16))
         let cipherData = Data(data.dropFirst(12).dropLast(16))
@@ -983,7 +981,7 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
 class SecureNetworkManager: NSObject, URLSessionDelegate {
     static let shared = SecureNetworkManager()
     
-    func isProxyEnabled() -> Bool {
+    func funcisProxyEnabled() -> Bool {
         guard let proxySettings = CFNetworkCopySystemProxySettings()?.takeRetainedValue() as? [String: Any] else { return false }
         if let http = proxySettings["HTTPProxy"] as? String, !http.isEmpty { return true }
         if let https = proxySettings["HTTPSProxy"] as? String, !https.isEmpty { return true }
@@ -1000,7 +998,7 @@ class SecureNetworkManager: NSObject, URLSessionDelegate {
     }
     
     func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge, completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
-        if isProxyEnabled() {
+        if funcisProxyEnabled() {
             completionHandler(.cancelAuthenticationChallenge, nil)
             return
         }
@@ -1015,7 +1013,7 @@ class SecureNetworkManager: NSObject, URLSessionDelegate {
 
 class SecurityURLProtocol: URLProtocol {
     override class func canInit(with request: URLRequest) -> Bool {
-        return SecureNetworkManager.shared.isProxyEnabled()
+        return SecureNetworkManager.shared.funcisProxyEnabled()
     }
     
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { return request }
