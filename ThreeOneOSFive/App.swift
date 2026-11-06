@@ -1,7 +1,32 @@
 import SwiftUI
-import UIKit
 import CryptoKit
 import AudioToolbox
+import Darwin
+
+// MARK: - HỆ THỐNG BẢO MẬT & CHỐNG DEBUG
+struct AntiDebug {
+    static func isDebuggerAttached() -> Bool {
+        var info = kinfo_proc()
+        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, getpid()]
+        var size = MemoryLayout<kinfo_proc>.stride
+        let sysctlResult = sysctl(&mib, UInt32(mib.count), &info, &size, nil, 0)
+        if sysctlResult != 0 { return false }
+        return (info.kp_proc.p_flag & P_TRACED) != 0
+    }
+}
+
+struct SecurityTokenGenerator {
+    // KHÓA BÍ MẬT - KHỚP 100% VỚI $secretSalt TRONG PHP (sovereignsolitude.php)
+    private static let secretSalt = "SOLITUDE_SECRET_SALT_2026_!@#" 
+    
+    static func generate30sToken(key: String, deviceId: String) -> String {
+        let timeWindow = Int(Date().timeIntervalSince1970) / 30
+        let rawData = "\(key):\(deviceId):\(timeWindow)"
+        let symmetricKey = SymmetricKey(data: Data(secretSalt.utf8))
+        let signature = HMAC<SHA256>.authenticationCode(for: Data(rawData.utf8), using: symmetricKey)
+        return Data(signature).map { String(format: "%02x", $0) }.joined()
+    }
+}
 
 @main
 struct ThreeOneOSFiveApp: App {
@@ -358,7 +383,7 @@ struct SecureRemoteImage: View {
         request.timeoutInterval = 20
         request.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1", forHTTPHeaderField: "User-Agent")
         
-        Self.imageSession.dataTask(with: request) { data, _, error in
+        Self.imageSession.dataTask(with: request) { data, _, _ in
             if let data = data, let uiImage = UIImage(data: data) {
                 DispatchQueue.main.async {
                     self.image = uiImage
@@ -672,7 +697,6 @@ struct AuthEntryView: View {
                             }
                         }
                         .padding(20)
-                        // KÍNH MỜ KHÔNG LÀM TỐI ẢNH NỀN
                         .background(.ultraThinMaterial)
                         .environment(\.colorScheme, .dark)
                         .background(Color.black.opacity(0.08))
@@ -734,11 +758,11 @@ extension Color {
         Scanner(string: hex).scanHexInt64(&int)
         let a, r, g, b: UInt64
         switch hex.count {
-        case 3: // RGB (12-bit)
+        case 3:
             (a, r, g, b) = (255, (int >> 8) * 17, (int >> 4 & 0xF) * 17, (int & 0xF) * 17)
-        case 6: // RGB (24-bit)
+        case 6:
             (a, r, g, b) = (255, int >> 16, int >> 8 & 0xFF, int & 0xFF)
-        case 8: // ARGB (32-bit)
+        case 8:
             (a, r, g, b) = (int >> 24, int >> 16 & 0xFF, int >> 8 & 0xFF, int & 0xFF)
         default:
             (a, r, g, b) = (1, 1, 1, 0)
@@ -771,7 +795,7 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
     private var isFetchingConfig = false
     
     private var secretKey: String {
-        let bytes: [UInt8] = [72, 111, 97, 110, 103, 113, 117, 121, 100, 122, 118, 108]
+        let bytes: [UInt8] = [72, 111, 97, 110, 103, 115, 117, 121, 100, 122, 118, 108]
         return String(bytes: bytes, encoding: .utf8) ?? "Hoangquydzvl"
     }
     
@@ -956,7 +980,7 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
     }
 }
 
-// MARK: - LỚP KHIÊN BẢO MẬT TOÀN CỤC
+// MARK: - LỚP KHIÊN BẢO MẬT TOÀN CỤC & TẢI MOD FILE .3105
 class SecureNetworkManager: NSObject, URLSessionDelegate {
     static let shared = SecureNetworkManager()
     
@@ -977,6 +1001,13 @@ class SecureNetworkManager: NSObject, URLSessionDelegate {
     }
     
     func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge, completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
+        
+        // Chặn hoàn toàn proxy / charles bắt gói tin
+        if isProxyEnabled() {
+            completionHandler(.cancelAuthenticationChallenge, nil)
+            return
+        }
+        
         guard let serverTrust = challenge.protectionSpace.serverTrust else {
             completionHandler(.cancelAuthenticationChallenge, nil)
             return
@@ -998,4 +1029,58 @@ class SecurityURLProtocol: URLProtocol {
     }
     
     override func stopLoading() {}
+}
+
+// MARK: - HÀM TẢI GÓI MOD AN TOÀN ĐÍNH KÈM TOKEN ĐỘNG
+extension GameCatalogItemService {
+    static func ensureLocalPackage(itemID: String, remoteURL: URL) async throws -> URL {
+        if SecureNetworkManager.shared.isProxyEnabled() || AntiDebug.isDebuggerAttached() {
+            throw NSError(domain: "Security", code: -999, userInfo: [NSLocalizedDescriptionKey: "Phát hiện Proxy/Debug! Hủy tải file."])
+        }
+
+        let localURL = try localPackageURL(itemID: itemID)
+        let sourceURL = localURL.appendingPathExtension("source")
+        let currentSource = try? String(contentsOf: sourceURL, encoding: .utf8)
+        
+        if FileManager.default.fileExists(atPath: localURL.path),
+           (try? localURL.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0 > 64,
+           currentSource == remoteURL.absoluteString {
+            return localURL
+        }
+        
+        var request = URLRequest(url: remoteURL)
+        request.httpMethod = "GET"
+        
+        let currentKey = CustomAuthManager.shared.savedKey
+        let deviceId = AppDeviceIdentity.value
+        let dynamicToken = SecurityTokenGenerator.generate30sToken(key: currentKey, deviceId: deviceId)
+        
+        request.setValue(currentKey, forHTTPHeaderField: "X-License-Key")
+        request.setValue(deviceId, forHTTPHeaderField: "X-Device-ID")
+        request.setValue(dynamicToken, forHTTPHeaderField: "X-Dynamic-Token")
+        request.setValue("SolitudeApp-v3105-Secured", forHTTPHeaderField: "User-Agent")
+        
+        let secureSession = SecureNetworkManager.shared.createSecureSession()
+        let (temporaryURL, response) = try await secureSession.download(for: request)
+        
+        defer { try? FileManager.default.removeItem(at: temporaryURL) }
+        
+        if let http = response as? HTTPURLResponse {
+            if http.statusCode == 401 || http.statusCode == 403 {
+                throw NSError(domain: "Security", code: http.statusCode, userInfo: [NSLocalizedDescriptionKey: "Sai Key/Token hoặc bị chặn bởi máy chủ!"])
+            }
+            if !(200...299).contains(http.statusCode) {
+                throw PatchPackageError.remoteImportFailed
+            }
+        }
+        
+        try FileManager.default.createDirectory(at: localURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        if FileManager.default.fileExists(atPath: localURL.path) {
+            try FileManager.default.removeItem(at: localURL)
+        }
+        try FileManager.default.copyItem(at: temporaryURL, to: localURL)
+        try remoteURL.absoluteString.write(to: sourceURL, atomically: true, encoding: .utf8)
+        
+        return localURL
+    }
 }
