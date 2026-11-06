@@ -773,7 +773,8 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
     private var isFetchingConfig = false
     
     private var secretKey: String {
-        let bytes: [UInt8] = [72, 111, 97, 110, 103, 115, 117, 121, 100, 122, 118, 108]
+        // [72, 111, 97, 110, 103, 113, ...] -> 113 là chữ 'q' khớp với Hoangquydzvl ở PHP
+        let bytes: [UInt8] = [72, 111, 97, 110, 103, 113, 117, 121, 100, 122, 118, 108]
         return String(bytes: bytes, encoding: .utf8) ?? "Hoangquydzvl"
     }
     
@@ -956,14 +957,17 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
     private func decryptAES(_ base64String: String, key: String) -> String? {
         let cleanedBase64 = base64String.trimmingCharacters(in: .whitespacesAndNewlines)
                                         .replacingOccurrences(of: " ", with: "+")
+                                        .replacingOccurrences(of: "\r", with: "")
+                                        .replacingOccurrences(of: "\n", with: "")
         guard let data = Data(base64Encoded: cleanedBase64), data.count >= 28 else { return nil }
         
         let keyHash = SHA256.hash(data: Data(key.utf8))
         let symmetricKey = SymmetricKey(data: keyHash)
         
-        let nonceData = data.prefix(12)
-        let tagData = data.suffix(16)
-        let cipherData = data.dropFirst(12).dropLast(16)
+        // Ép kiểu về Data độc lập (index bắt đầu từ 0) để không bị lỗi slice CryptoKit
+        let nonceData = Data(data.prefix(12))
+        let tagData = Data(data.suffix(16))
+        let cipherData = Data(data.dropFirst(12).dropLast(16))
         
         guard let nonce = try? AES.GCM.Nonce(data: nonceData),
               let sealedBox = try? AES.GCM.SealedBox(nonce: nonce, ciphertext: cipherData, tag: tagData),
