@@ -16,7 +16,6 @@ struct AntiDebug {
 }
 
 struct SecurityTokenGenerator {
-    // KHÓA BÍ MẬT - KHỚP 100% VỚI $secretSalt TRONG PHP (sovereignsolitude.php)
     private static let secretSalt = "SOLITUDE_SECRET_SALT_2026_!@#" 
     
     static func generate30sToken(key: String, deviceId: String) -> String {
@@ -459,22 +458,15 @@ struct AuthEntryView: View {
     
     var body: some View {
         ZStack {
-            // 1. HÌNH NỀN FULL SẮC NÉT (NHÌN RÕ NÉT 100% PHÍA SAU)
             SecureRemoteImage(urlString: authManager.publicBackgroundURL, placeholder: Image(systemName: "photo"))
                 .id(authManager.publicBackgroundURL)
                 .ignoresSafeArea()
             
-            // 2. HIỆU ỨNG TUYẾT RƠI
             SnowEffectView()
                 .ignoresSafeArea()
             
-            // 3. ĐIỀU HƯỚNG MÀN HÌNH
             if isSplashActive {
-                // ==========================================
-                // MÀN HÌNH SPLASH (LOADING 0-100% TRONG 1.5S)
-                // ==========================================
                 VStack(spacing: 28) {
-                    // Avatar Splash với Viền Xanh Neon Phát Sáng
                     ZStack {
                         Circle()
                             .stroke(
@@ -490,14 +482,12 @@ struct AuthEntryView: View {
                             .clipShape(Circle())
                     }
                     
-                    // Tiêu Đề App Trắng Neon
                     Text(authManager.publicAppName.isEmpty ? "𝐒𝐨𝐯𝐞𝐫𝐞𝐢𝐠𝐧 𝐒𝐨𝐥𝐢𝐭𝐮𝐝𝐞" : authManager.publicAppName)
                         .font(.system(size: 30, weight: .black, design: .serif))
                         .foregroundColor(.white)
                         .shadow(color: .white.opacity(0.9), radius: 12)
                         .shadow(color: Color(hex: "#00f2fe").opacity(0.6), radius: 6)
                     
-                    // Progress Bar Loading Xanh Cyan
                     VStack(spacing: 12) {
                         ZStack(alignment: .leading) {
                             Capsule()
@@ -517,16 +507,11 @@ struct AuthEntryView: View {
                     }
                 }
                 .transition(.opacity.animation(.easeInOut(duration: 0.4)))
-                
             } else {
-                // ==========================================
-                // GIAO DIỆN CHÍNH - VIỀN XOAY XANH NEON VÀ FORM KÍNH MỜ SIÊU TRONG SUỐT
-                // ==========================================
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(spacing: 22) {
                         Spacer().frame(height: 45)
                         
-                        // --- AVATAR VIỀN XOAY MÀU XANH NEON (CYAN / ELECTRIC BLUE) ---
                         ZStack {
                             Circle()
                                 .stroke(
@@ -555,7 +540,6 @@ struct AuthEntryView: View {
                                 .clipShape(Circle())
                         }
                         
-                        // --- TÊN APP (CHỮ TRẮNG NEON) ---
                         VStack(spacing: 6) {
                             Text(authManager.publicAppName.isEmpty ? "𝐒𝐨𝐯𝐞𝐫𝐞𝐢𝐠𝐧 𝐒𝐨𝐥𝐢𝐭𝐮𝐝𝐞" : authManager.publicAppName)
                                 .font(.system(size: 28, weight: .black, design: .serif))
@@ -571,9 +555,7 @@ struct AuthEntryView: View {
                             }
                         }
                         
-                        // --- KHUNG FORM KÍNH MỜ SIÊU TRONG SUỐT ---
                         VStack(spacing: 16) {
-                            // Ô Nhập Key (Trong suốt)
                             HStack(spacing: 10) {
                                 Image(systemName: "key.horizontal.fill")
                                     .font(.system(size: 16))
@@ -611,7 +593,6 @@ struct AuthEntryView: View {
                                 }
                             }
                             
-                            // Nút Dán Key
                             Button(action: {
                                 if let pasted = UIPasteboard.general.string {
                                     keyInput = pasted.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -631,7 +612,6 @@ struct AuthEntryView: View {
                                 .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.3), lineWidth: 1))
                             }
                             
-                            // Trạng thái (Chữ Trắng Neon)
                             HStack {
                                 Circle().fill(authManager.errorMessage != nil ? Color.red : Color(hex: "#00f2fe")).frame(width: 6, height: 6)
                                 Text(authManager.errorMessage ?? "Trạng thái: Sẵn sàng xác thực...")
@@ -641,7 +621,6 @@ struct AuthEntryView: View {
                                 Spacer()
                             }
                             
-                            // Nút Kích Hoạt System (Phối Gradient Xanh Neon Electric Blue)
                             if authManager.isLoading {
                                 ProgressView()
                                     .progressViewStyle(CircularProgressViewStyle(tint: .white))
@@ -676,7 +655,6 @@ struct AuthEntryView: View {
                                 }
                             }
                             
-                            // Nút Lấy Key (Chữ Trắng Kính Mờ)
                             Button(action: {
                                 if let url = URL(string: authManager.publicGetKeyURL), url.scheme == "http" || url.scheme == "https" {
                                     UIApplication.shared.open(url)
@@ -777,7 +755,7 @@ extension Color {
     }
 }
 
-// MARK: - CUSTOM AUTH MANAGER (BẢO MẬT KHÓA AES & ĐỌC CONFIG)
+// MARK: - CUSTOM AUTH MANAGER
 class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
     static let shared = CustomAuthManager()
     
@@ -980,7 +958,7 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
     }
 }
 
-// MARK: - LỚP KHIÊN BẢO MẬT TOÀN CỤC & TẢI MOD FILE .3105
+// MARK: - LỚP KHIÊN BẢO MẬT TOÀN CỤC
 class SecureNetworkManager: NSObject, URLSessionDelegate {
     static let shared = SecureNetworkManager()
     
@@ -1001,8 +979,6 @@ class SecureNetworkManager: NSObject, URLSessionDelegate {
     }
     
     func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge, completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
-        
-        // Chặn hoàn toàn proxy / charles bắt gói tin
         if isProxyEnabled() {
             completionHandler(.cancelAuthenticationChallenge, nil)
             return
@@ -1029,58 +1005,4 @@ class SecurityURLProtocol: URLProtocol {
     }
     
     override func stopLoading() {}
-}
-
-// MARK: - HÀM TẢI GÓI MOD AN TOÀN ĐÍNH KÈM TOKEN ĐỘNG
-extension GameCatalogItemService {
-    static func ensureLocalPackage(itemID: String, remoteURL: URL) async throws -> URL {
-        if SecureNetworkManager.shared.isProxyEnabled() || AntiDebug.isDebuggerAttached() {
-            throw NSError(domain: "Security", code: -999, userInfo: [NSLocalizedDescriptionKey: "Phát hiện Proxy/Debug! Hủy tải file."])
-        }
-
-        let localURL = try localPackageURL(itemID: itemID)
-        let sourceURL = localURL.appendingPathExtension("source")
-        let currentSource = try? String(contentsOf: sourceURL, encoding: .utf8)
-        
-        if FileManager.default.fileExists(atPath: localURL.path),
-           (try? localURL.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0 > 64,
-           currentSource == remoteURL.absoluteString {
-            return localURL
-        }
-        
-        var request = URLRequest(url: remoteURL)
-        request.httpMethod = "GET"
-        
-        let currentKey = CustomAuthManager.shared.savedKey
-        let deviceId = AppDeviceIdentity.value
-        let dynamicToken = SecurityTokenGenerator.generate30sToken(key: currentKey, deviceId: deviceId)
-        
-        request.setValue(currentKey, forHTTPHeaderField: "X-License-Key")
-        request.setValue(deviceId, forHTTPHeaderField: "X-Device-ID")
-        request.setValue(dynamicToken, forHTTPHeaderField: "X-Dynamic-Token")
-        request.setValue("SolitudeApp-v3105-Secured", forHTTPHeaderField: "User-Agent")
-        
-        let secureSession = SecureNetworkManager.shared.createSecureSession()
-        let (temporaryURL, response) = try await secureSession.download(for: request)
-        
-        defer { try? FileManager.default.removeItem(at: temporaryURL) }
-        
-        if let http = response as? HTTPURLResponse {
-            if http.statusCode == 401 || http.statusCode == 403 {
-                throw NSError(domain: "Security", code: http.statusCode, userInfo: [NSLocalizedDescriptionKey: "Sai Key/Token hoặc bị chặn bởi máy chủ!"])
-            }
-            if !(200...299).contains(http.statusCode) {
-                throw PatchPackageError.remoteImportFailed
-            }
-        }
-        
-        try FileManager.default.createDirectory(at: localURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-        if FileManager.default.fileExists(atPath: localURL.path) {
-            try FileManager.default.removeItem(at: localURL)
-        }
-        try FileManager.default.copyItem(at: temporaryURL, to: localURL)
-        try remoteURL.absoluteString.write(to: sourceURL, atomically: true, encoding: .utf8)
-        
-        return localURL
-    }
 }
