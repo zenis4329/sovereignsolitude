@@ -30,11 +30,12 @@ struct ContentView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             
-            // Thanh Tab Bar nổi (Thu gọn, tự động ẩn)
+            // Thanh Tab Bar nổi (Kính mờ, bo Capsule gọn gàng)
             if !isTabBarHidden {
                 floatingTabBar
-                    .padding(.bottom, 20)
+                    .padding(.bottom, 25)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .zIndex(10)
             }
         }
         .tint((AppAccentSpectrum(rawValue: accentRaw) ?? .azure).color)
@@ -42,43 +43,49 @@ struct ContentView: View {
         .apexScreenBackground()
     }
 
-    // MARK: - THANH TAB GỌN GÀNG
+    // MARK: - THANH TAB GỌN GÀNG (EXPANDABLE PILL DESIGN)
     private var floatingTabBar: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 8) {
             tabButton(icon: "house.fill", title: "Trang chủ", tag: AppSection.home.rawValue)
             tabButton(icon: "lock.shield.fill", title: "Chức năng", tag: AppSection.games.rawValue)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
         .background(
             Capsule()
-                .fill(Color(red: 0.08, green: 0.08, blue: 0.12).opacity(0.95))
-                .overlay(Capsule().stroke(Color.cyan.opacity(0.3), lineWidth: 1))
-                .shadow(color: Color.black.opacity(0.5), radius: 10, y: 5)
+                .fill(.ultraThinMaterial)
+                .environment(\.colorScheme, .dark) // Ép kính mờ tối màu
+                .overlay(Capsule().stroke(Color.cyan.opacity(0.4), lineWidth: 1))
+                .shadow(color: Color.black.opacity(0.3), radius: 15, x: 0, y: 8)
         )
     }
 
     private func tabButton(icon: String, title: String, tag: Int) -> some View {
-        Button {
-            withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) {
+        let isSelected = tabNavigation.selectedTab == tag
+        
+        return Button {
+            withAnimation(.spring(response: 0.4, dampingFraction: 0.7, blendDuration: 0.5)) {
                 tabNavigation.select(tag)
             }
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
         } label: {
             HStack(spacing: 6) {
                 Image(systemName: icon)
-                    .font(.system(size: 16, weight: tabNavigation.selectedTab == tag ? .bold : .regular))
-                if tabNavigation.selectedTab == tag {
+                    .font(.system(size: 18, weight: isSelected ? .bold : .medium))
+                
+                // Chỉ hiện chữ khi Tab được chọn -> Rất gọn gàng
+                if isSelected {
                     Text(title)
-                        .font(.system(size: 12, weight: .bold))
+                        .font(.system(size: 14, weight: .bold))
+                        .lineLimit(1)
                 }
             }
-            .foregroundColor(tabNavigation.selectedTab == tag ? .cyan : .gray)
-            .padding(.horizontal, 16)
+            .foregroundColor(isSelected ? .cyan : .white.opacity(0.6))
+            .padding(.horizontal, isSelected ? 18 : 12)
             .padding(.vertical, 10)
             .background(
                 Capsule()
-                    .fill(tabNavigation.selectedTab == tag ? Color.cyan.opacity(0.15) : Color.clear)
+                    .fill(isSelected ? Color.cyan.opacity(0.2) : Color.clear)
             )
         }
         .buttonStyle(.plain)
@@ -96,23 +103,37 @@ private struct DashboardView: View {
     @Binding var cleanerEnabled: Bool
     @AppStorage(AppThemePreferences.accentStorageKey) private var accentRaw = AppThemePreferences.defaultAccent.rawValue
 
+    // TỐI ƯU: Khởi tạo DateFormatter 1 lần duy nhất để tránh tràn RAM khi TimelineView chạy mỗi giây
+    private static let dateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        formatter.timeZone = TimeZone(identifier: "Asia/Ho_Chi_Minh")
+        return formatter
+    }()
+
     private var accent: AppAccentSpectrum {
         AppAccentSpectrum(rawValue: accentRaw) ?? .azure
     }
+    
+    // State cho hiệu ứng nhịp thở của Avatar
+    @State private var isBreathing = false
 
     var body: some View {
         NavigationStack {
             ZStack {
                 RemoteAppBackground()
-                ScrollView {
+                ScrollView(showsIndicators: false) {
                     VStack(spacing: 18) {
                         heroCard
                         licenseMiniWidget
                         deviceCard
                         socialCard
+                        
+                        // Spacer đẩy nội dung lên để không bị Tab bar che khuất
+                        Spacer().frame(height: 80)
                     }
                     .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
+                    .padding(.top, 12)
                 }
                 .background(Color.clear)
             }
@@ -121,12 +142,19 @@ private struct DashboardView: View {
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button { showSettings = true } label: {
-                        Image(systemName: "gearshape.fill").symbolRenderingMode(.hierarchical)
+                        Image(systemName: "gearshape.fill")
+                            .symbolRenderingMode(.hierarchical)
+                            .foregroundColor(accent.color)
                     }
                 }
             }
             .sheet(isPresented: $showSettings) {
                 SettingsView().environmentObject(appState)
+            }
+            .onAppear {
+                withAnimation(.easeInOut(duration: 2.0).repeatForever(autoreverses: true)) {
+                    isBreathing = true
+                }
             }
         }
     }
@@ -140,64 +168,92 @@ private struct DashboardView: View {
             .frame(width: 100, height: 100)
             .clipShape(Circle())
             .overlay(
-                Circle().stroke(LinearGradient(colors: [accent.color, .purple], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 3)
+                Circle()
+                    .stroke(LinearGradient(colors: [accent.color, Color.cyan], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 3)
             )
-            .shadow(color: accent.color.opacity(0.4), radius: 10, x: 0, y: 5)
+            .shadow(color: accent.color.opacity(isBreathing ? 0.6 : 0.2), radius: isBreathing ? 15 : 5, x: 0, y: 5)
 
-            Text(catalogStore.catalog.brandTitle ?? "HMT IPA PRX").font(.title.weight(.bold))
-            Text(catalogStore.catalog.brandSubtitle ?? language.text("dashboard.tagline")).font(.subheadline).foregroundStyle(.secondary)
+            Text(catalogStore.catalog.brandTitle ?? "Sovereign Solitude")
+                .font(.title2.weight(.black))
+                .tracking(1)
+            
+            Text(catalogStore.catalog.brandSubtitle ?? language.text("dashboard.tagline"))
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
         }
-        .frame(maxWidth: .infinity).padding(.vertical, 24).apexCard()
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 24)
+        .apexCard()
     }
 
     private var licenseMiniWidget: some View {
-        TimelineView(.periodic(from: .now, by: 1.0)) { context -> AnyView in
+        TimelineView(.periodic(from: .now, by: 1.0)) { context in
             let remainingTime = calculateRemainingTime(from: authManager.expireDate, currentDate: context.date)
             
-            return AnyView(
-                HStack(spacing: 12) {
-                    Image(systemName: "clock.badge.checkmark.fill").font(.title3).foregroundStyle(accent.color)
-                    Text(remainingTime).font(.system(.body, design: .monospaced).weight(.semibold)).foregroundColor(remainingTime == "Hết Hạn" ? .red : .primary)
-                    Spacer()
-                    Button {
-                        UIPasteboard.general.string = authManager.savedKey
-                        licenseKeyCopied = true
-                        AudioServicesPlaySystemSound(1104)
-                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { licenseKeyCopied = false }
-                    } label: {
-                        HStack(spacing: 6) {
-                            Image(systemName: licenseKeyCopied ? "checkmark" : "doc.on.doc")
-                            Text(licenseKeyCopied ? "Đã chép" : "Copy Key")
-                        }
-                        .font(.caption.weight(.bold)).foregroundStyle(licenseKeyCopied ? .green : accent.color)
-                        .padding(.horizontal, 12).padding(.vertical, 8)
-                        .background(Color(uiColor: .secondarySystemBackground)).cornerRadius(10)
-                    }.buttonStyle(.plain)
+            // TỐI ƯU: Đã xóa bỏ AnyView ở đây giúp Swift render nhanh hơn
+            HStack(spacing: 12) {
+                Image(systemName: "clock.badge.checkmark.fill")
+                    .font(.title2)
+                    .foregroundStyle(accent.color)
+                    .symbolEffect(.pulse, options: .repeating, isActive: remainingTime != "Hết Hạn")
+                
+                Text(remainingTime)
+                    .font(.system(.body, design: .monospaced).weight(.bold))
+                    .foregroundColor(remainingTime == "Hết Hạn" ? .red : .primary)
+                
+                Spacer()
+                
+                Button {
+                    UIPasteboard.general.string = authManager.savedKey
+                    withAnimation { licenseKeyCopied = true }
+                    AudioServicesPlaySystemSound(1104)
+                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                    
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                        withAnimation { licenseKeyCopied = false }
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: licenseKeyCopied ? "checkmark.circle.fill" : "doc.on.doc.fill")
+                        Text(licenseKeyCopied ? "Đã chép" : "Copy Key")
+                    }
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(licenseKeyCopied ? .white : accent.color)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .background(licenseKeyCopied ? Color.green : Color(uiColor: .secondarySystemBackground))
+                    .cornerRadius(12)
                 }
-                .padding(.horizontal, 16).padding(.vertical, 12)
-                .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color(uiColor: .secondarySystemBackground).opacity(0.6)).overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(accent.color.opacity(0.3), lineWidth: 1)))
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+            .background(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(Color(uiColor: .secondarySystemBackground).opacity(0.6))
+                    .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(accent.color.opacity(0.3), lineWidth: 1.5))
             )
         }
     }
 
     private func calculateRemainingTime(from dateStr: String, currentDate: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
-        formatter.timeZone = TimeZone(identifier: "Asia/Ho_Chi_Minh")
-        guard let expDate = formatter.date(from: dateStr) else { return "Không xác định" }
+        // Sử dụng DateFormatter tĩnh được tạo sẵn ở trên
+        guard let expDate = Self.dateFormatter.date(from: dateStr) else { return "Không xác định" }
         let diff = Int(expDate.timeIntervalSince(currentDate))
+        
         if diff <= 0 { return "Hết Hạn" }
+        
         let days = diff / 86400
         let hrs = (diff % 86400) / 3600
         let mins = (diff % 3600) / 60
         let secs = diff % 60
+        
         return days > 0 ? "\(days) ngày \(hrs) giờ" : (hrs > 0 ? String(format: "%02d:%02d:%02d", hrs, mins, secs) : String(format: "%02d:%02d", mins, secs))
     }
 
     private var deviceCard: some View {
         VStack(alignment: .leading, spacing: 14) {
-            sectionHeader(title: language.text("common.device"), systemImage: "iphone")
+            sectionHeader(title: language.text("common.device"), systemImage: "iphone.gen3")
             metricRow(title: language.text("settings.device"), value: AppInfo.hardwareDisplayName)
             Divider().opacity(0.5)
             metricRow(title: language.text("settings.ios_version"), value: "\(AppInfo.osVersion) (\(AppInfo.osBuild))")
@@ -207,7 +263,9 @@ private struct DashboardView: View {
                 Spacer()
                 StatusBadge(text: language.text(appState.isSupported ? "settings.supported" : "settings.unsupported"), tone: appState.isSupported ? .success : .danger)
             }
-        }.apexCard()
+        }
+        .padding(.vertical, 4)
+        .apexCard()
     }
 
     private var socialCard: some View {
@@ -223,22 +281,32 @@ private struct DashboardView: View {
                     if let url = URL(string: row.url) { UIApplication.shared.open(url) }
                 } label: {
                     HStack(spacing: 12) {
-                        Image(systemName: "link").foregroundStyle(accent.color).frame(width: 28)
+                        Image(systemName: "link.circle.fill")
+                            .font(.title2)
+                            .foregroundStyle(accent.color)
+                            
                         VStack(alignment: .leading, spacing: 2) {
                             Text(row.name).font(.body.weight(.semibold)).foregroundStyle(.primary)
                             Text(row.role).font(.caption).foregroundStyle(.secondary)
                         }
                         Spacer()
-                        Image(systemName: "arrow.up.right").font(.caption.bold()).foregroundStyle(.secondary)
-                    }.contentShape(Rectangle())
-                }.buttonStyle(.plain)
+                        Image(systemName: "arrow.up.right")
+                            .font(.caption.bold())
+                            .foregroundStyle(.secondary)
+                    }
+                    .contentShape(Rectangle())
+                    .padding(.vertical, 4)
+                }
+                .buttonStyle(.plain)
             }
         }.apexCard()
     }
 
     private func sectionHeader(title: String, systemImage: String) -> some View {
         HStack(spacing: 8) {
-            Image(systemName: systemImage).font(.subheadline.weight(.bold)).foregroundStyle(accent.color)
+            Image(systemName: systemImage)
+                .font(.subheadline.weight(.bold))
+                .foregroundStyle(accent.color)
             Text(title).font(.subheadline.weight(.bold))
             Spacer()
         }
