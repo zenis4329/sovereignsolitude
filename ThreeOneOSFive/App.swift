@@ -945,15 +945,32 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
         let keyHash = SHA256.hash(data: Data(key.utf8))
         let symmetricKey = SymmetricKey(data: keyHash)
         guard let sealedBox = try? AES.GCM.seal(data, using: symmetricKey) else { return nil }
-        return sealedBox.combined?.base64EncodedString()
+        
+        var combinedData = Data()
+        combinedData.append(sealedBox.nonce)
+        combinedData.append(sealedBox.ciphertext)
+        combinedData.append(sealedBox.tag)
+        return combinedData.base64EncodedString()
     }
     
     private func decryptAES(_ base64String: String, key: String) -> String? {
-        guard let data = Data(base64Encoded: base64String) else { return nil }
+        let cleanedBase64 = base64String.trimmingCharacters(in: .whitespacesAndNewlines)
+                                        .replacingOccurrences(of: " ", with: "+")
+        guard let data = Data(base64Encoded: cleanedBase64), data.count >= 28 else { return nil }
+        
         let keyHash = SHA256.hash(data: Data(key.utf8))
         let symmetricKey = SymmetricKey(data: keyHash)
-        guard let sealedBox = try? AES.GCM.SealedBox(combined: data),
-              let decryptedData = try? AES.GCM.open(sealedBox, using: symmetricKey) else { return nil }
+        
+        let nonceData = data.prefix(12)
+        let tagData = data.suffix(16)
+        let cipherData = data.dropFirst(12).dropLast(16)
+        
+        guard let nonce = try? AES.GCM.Nonce(data: nonceData),
+              let sealedBox = try? AES.GCM.SealedBox(nonce: nonce, ciphertext: cipherData, tag: tagData),
+              let decryptedData = try? AES.GCM.open(sealedBox, using: symmetricKey) else {
+            return nil
+        }
+        
         return String(data: decryptedData, encoding: .utf8)
     }
 }
