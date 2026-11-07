@@ -14,7 +14,7 @@
     <key>CFBundleDevelopmentRegion</key>
     <string>en</string>
     <key>CFBundleDisplayName</key>
-    <string>HNH x IPA</string>
+    <string>SOVEREIGN SOLITUDE</string>
     <key>CFBundleExecutable</key>
     <string>$(EXECUTABLE_NAME)</string>
     <key>CFBundleIdentifier</key>
@@ -22,7 +22,7 @@
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
-    <string>HNH x IPA</string>
+    <string>SovereignSolitude</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
@@ -30,12 +30,12 @@
     <key>CFBundleVersion</key>
     <string>7</string>
     <key>NSHumanReadableCopyright</key>
-    <string>Copyright © 2026 ZENISIOSVN. All rights reserved.</string>
+    <string>Copyright © 2026 SOVEREIGN SOLITUDE. All rights reserved.</string>
     <key>CFBundleDocumentTypes</key>
     <array>
         <dict>
             <key>CFBundleTypeName</key>
-            <string>HNH x IPA Patch Package</string>
+            <string>SOVEREIGN SOLITUDE Patch Package</string>
             <key>CFBundleTypeRole</key>
             <string>Editor</string>
             <key>LSHandlerRank</key>
@@ -65,7 +65,7 @@
                 <string>public.data</string>
             </array>
             <key>UTTypeDescription</key>
-            <string>HNH x IPA Patch Package</string>
+            <string>SOVEREIGN SOLITUDE Patch Package</string>
             <key>UTTypeIdentifier</key>
             <string>com.yangjiii.3105.patch-package</string>
             <key>UTTypeTagSpecification</key>
@@ -93,9 +93,9 @@
         <string>audio</string>
     </array>
     <key>NSPhotoLibraryUsageDescription</key>
-    <string>HNH x IPA needs access to photos for wallpaper customization.</string>
+    <string>SOVEREIGN SOLITUDE needs access to photos for wallpaper customization.</string>
     <key>NSDocumentsFolderUsageDescription</key>
-    <string>HNH x IPA needs access to documents.</string>
+    <string>SOVEREIGN SOLITUDE needs access to documents.</string>
     <key>UIApplicationSceneManifest</key>
     <dict>
         <key>UIApplicationSupportsMultipleScenes</key>
