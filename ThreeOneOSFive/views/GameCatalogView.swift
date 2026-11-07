@@ -219,6 +219,10 @@ struct GameCatalogView: View {
                 }
             }
             .toolbar(.hidden, for: .navigationBar)
+            .onAppear {
+                // BẢO MẬT: Chống dịch ngược / chặn Proxy
+                AntiDebug.killAppIfUnsafe()
+            }
         }
     }
 }
@@ -295,7 +299,7 @@ private struct GameDetailView: View {
     private var catalog: GameCatalog { store.catalog }
     private var game: GameCatalogGame? { catalog.games.first(where: { $0.id == gameID }) }
     
-    // ĐÃ XÓA BỘ LỌC isCatalogItemVisible ĐỂ LUÔN HIỂN THỊ
+    // ĐÃ XÓA BỘ LỌC isCatalogItemVisible ĐỂ LUÔN HIỂN THỊ MOD DÙ FILE LỖI
     private var items: [GameCatalogItem] {
         (game?.items ?? [])
             .filter { $0.category.rawValue == selectedTabID }
@@ -434,10 +438,11 @@ private struct GameDetailView: View {
     }
 }
 
-// MARK: - HÀNG CHỨA TỪNG BẢN MOD (CÓ LOG + ALERT)
+// MARK: - HÀNG CHỨA TỪNG BẢN MOD (TẤT CẢ ĐỀU DÙNG AVATAR APP)
 private struct ModItemRow: View {
     let item: GameCatalogItem
     @StateObject private var store = GameCatalogStore.shared
+    @StateObject private var authManager = CustomAuthManager.shared // Lấy Avatar từ đây
     @State private var showDetailSheet = false
     @State private var showErrorAlert = false
     @State private var errorMessage = ""
@@ -458,22 +463,31 @@ private struct ModItemRow: View {
         let busy = store.isBusy(itemID: item.id)
         
         HStack(spacing: 14) {
+            // ICON: DÙNG AVATAR APP CHO TẤT CẢ CÁC MOD
             ZStack {
-                RoundedRectangle(cornerRadius: 16)
+                Circle()
                     .fill(isOn ? Color.cyan.opacity(0.2) : Color.white.opacity(0.05))
                     .frame(width: 56, height: 56)
                     .overlay(
-                        RoundedRectangle(cornerRadius: 16)
+                        Circle()
                             .stroke(isOn ? Color.cyan : Color.white.opacity(0.1), lineWidth: 1.5)
                     )
                     .shadow(color: isOn ? .cyan.opacity(0.6) : .clear, radius: 8)
                 
-                Image(systemName: isOn ? "shield.fill" : "shield")
-                    .foregroundColor(isOn ? .cyan : .white.opacity(0.5))
-                    .font(.title2)
-                    .shadow(color: isOn ? .cyan : .clear, radius: 4)
+                if let avatarURL = authManager.publicAvatarURL, !avatarURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    SecureCatalogImage(urlString: avatarURL, placeholder: Image(systemName: isOn ? "shield.fill" : "shield"))
+                        .frame(width: 56, height: 56)
+                        .clipShape(Circle())
+                } else {
+                    // Fallback nếu App chưa có avatar
+                    Image(systemName: isOn ? "shield.fill" : "shield")
+                        .foregroundColor(isOn ? .cyan : .white.opacity(0.5))
+                        .font(.title2)
+                        .shadow(color: isOn ? .cyan : .clear, radius: 4)
+                }
             }
             
+            // Info
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 8) {
                     Text(item.name)
@@ -503,6 +517,7 @@ private struct ModItemRow: View {
             
             Spacer()
             
+            // Toggle
             if busy {
                 ProgressView().tint(.cyan).scaleEffect(1.2).padding(.trailing, 5)
             } else {
@@ -511,20 +526,13 @@ private struct ModItemRow: View {
                     set: { value in
                         UIImpactFeedbackGenerator(style: .light).impactOccurred()
                         Task {
-                            print("🔥 [ModItemRow] Bắt đầu toggle: \(item.name) -> \(value)")
-                            
                             await store.setEnabled(value, item: item)
                             
-                            // KIỂM TRA KẾT QUẢ
                             if let error = store.lastError {
-                                print("❌ [ModItemRow] LỖI: \(error)")
                                 errorMessage = error
                                 showErrorAlert = true
                             } else if value && hasGuide {
-                                print("✅ [ModItemRow] Bật thành công, hiện popup")
                                 showDetailSheet = true
-                            } else {
-                                print("✅ [ModItemRow] Thành công (không có HDSD)")
                             }
                         }
                     }
@@ -562,7 +570,7 @@ private struct ModItemRow: View {
     }
 }
 
-// MARK: - POPUP CHI TIẾT MOD
+// MARK: - POPUP CHI TIẾT MOD (ẢNH + HDSD + COPY + YOUTUBE)
 struct ModDetailSheet: View {
     let item: GameCatalogItem
     @Environment(\.dismiss) private var dismiss
@@ -580,6 +588,7 @@ struct ModDetailSheet: View {
                 
                 ScrollView {
                     VStack(spacing: 20) {
+                        // 1. ẢNH
                         if let imgURL = item.imageURL, !imgURL.trimmingCharacters(in: .whitespaces).isEmpty {
                             SecureCatalogImage(urlString: imgURL, placeholder: Image(systemName: "photo"))
                                 .frame(maxWidth: .infinity)
@@ -588,12 +597,14 @@ struct ModDetailSheet: View {
                                 .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.cyan.opacity(0.5), lineWidth: 1))
                         }
                         
+                        // 2. HDSD
                         if let guide = item.usageGuide, !guide.trimmingCharacters(in: .whitespaces).isEmpty {
                             VStack(alignment: .leading, spacing: 12) {
                                 HStack {
                                     Image(systemName: "text.book.closed.fill").foregroundColor(.cyan)
                                     Text("Hướng dẫn sử dụng").font(.headline).foregroundColor(.white)
                                     Spacer()
+                                    // Nút Copy
                                     Button {
                                         UIPasteboard.general.string = guide
                                         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
@@ -623,6 +634,7 @@ struct ModDetailSheet: View {
                                     .cornerRadius(12)
                                     .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.1), lineWidth: 1))
                                 
+                                // Nút Mở YouTube (Nếu là link)
                                 if isYouTubeLink {
                                     Button {
                                         if let url = URL(string: guide) {
@@ -646,6 +658,7 @@ struct ModDetailSheet: View {
                             }
                         }
                         
+                        // 3. NẾU KHÔNG CÓ GÌ
                         if (item.imageURL ?? "").isEmpty && (item.usageGuide ?? "").isEmpty {
                             VStack(spacing: 12) {
                                 Image(systemName: "doc.questionmark")
