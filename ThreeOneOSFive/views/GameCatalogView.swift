@@ -102,15 +102,13 @@ struct GameCatalogView: View {
                             }
                             .padding(.top, 40).padding(.trailing, 20)
                             
-                            // --- AVATAR XOAY NEON (ĐÃ FIX LỖI GIẬT) ---
+                            // --- AVATAR XOAY NEON ---
                             ZStack {
-                                // Lớp Glow phía sau
                                 Circle()
                                     .fill(Color.cyan.opacity(0.18))
                                     .frame(width: 140, height: 140)
                                     .blur(radius: 20)
                                 
-                                // Vòng xoay Gradient
                                 Circle()
                                     .stroke(
                                         AngularGradient(
@@ -124,7 +122,6 @@ struct GameCatalogView: View {
                                     .animation(.linear(duration: 4).repeatForever(autoreverses: false), value: isRotating)
                                     .drawingGroup()
                                 
-                                // Ảnh Avatar bên trong
                                 SecureCatalogImage(urlString: authManager.publicAvatarURL, placeholder: Image(systemName: "person.crop.circle.fill"))
                                     .frame(width: 110, height: 110)
                                     .clipShape(Circle())
@@ -434,15 +431,20 @@ private struct GameDetailView: View {
     }
 }
 
-// MARK: - HÀNG CHỨA TỪNG BẢN MOD
+// MARK: - HÀNG CHỨA TỪNG BẢN MOD (ĐÃ THÊM NÚT XEM HDSD)
 private struct ModItemRow: View {
     let item: GameCatalogItem
     @StateObject private var store = GameCatalogStore.shared
+    @State private var showDetailSheet = false // <--- Thêm biến bật popup
     
     private var isVip: Bool {
         item.name.localizedCaseInsensitiveContains("VIP")
         || item.name.localizedCaseInsensitiveContains("AIM HEAD")
         || item.name.localizedCaseInsensitiveContains("CAN CHECK")
+    }
+    
+    private var hasGuide: Bool {
+        !(item.usageGuide ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !(item.imageURL ?? "").isEmpty
     }
     
     var body: some View {
@@ -498,6 +500,23 @@ private struct ModItemRow: View {
             
             Spacer()
             
+            // NÚT XEM HDSD (Hiện nếu có ảnh hoặc HDSD)
+            if hasGuide {
+                Button(action: {
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    showDetailSheet = true
+                }) {
+                    Image(systemName: "doc.text.magnifyingglass")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundColor(.cyan)
+                        .frame(width: 38, height: 38)
+                        .background(Color.cyan.opacity(0.15))
+                        .clipShape(Circle())
+                        .overlay(Circle().stroke(Color.cyan.opacity(0.5), lineWidth: 1))
+                }
+                .buttonStyle(.plain)
+            }
+            
             // Toggle
             if busy {
                 ProgressView().tint(.cyan).scaleEffect(1.2).padding(.trailing, 5)
@@ -531,5 +550,123 @@ private struct ModItemRow: View {
         )
         .shadow(color: isOn ? .cyan.opacity(0.25) : .black.opacity(0.3), radius: 12, y: 5)
         .opacity(hasLink ? 1 : 0.6)
+        // BẬT POPUP HDSD
+        .sheet(isPresented: $showDetailSheet) {
+            ModDetailSheet(item: item)
+        }
+    }
+}
+
+// MARK: - POPUP CHI TIẾT MOD (ẢNH + HDSD + COPY + YOUTUBE)
+struct ModDetailSheet: View {
+    let item: GameCatalogItem
+    @Environment(\.dismiss) private var dismiss
+    @State private var copied = false
+    
+    private var isYouTubeLink: Bool {
+        let guide = (item.usageGuide ?? "").lowercased()
+        return guide.contains("youtube.com") || guide.contains("youtu.be")
+    }
+    
+    var body: some View {
+        NavigationView {
+            ZStack {
+                Color.black.ignoresSafeArea()
+                
+                ScrollView {
+                    VStack(spacing: 20) {
+                        // 1. ẢNH
+                        if let imgURL = item.imageURL, !imgURL.trimmingCharacters(in: .whitespaces).isEmpty {
+                            SecureCatalogImage(urlString: imgURL, placeholder: Image(systemName: "photo"))
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 260)
+                                .cornerRadius(16)
+                                .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.cyan.opacity(0.5), lineWidth: 1))
+                        }
+                        
+                        // 2. HDSD
+                        if let guide = item.usageGuide, !guide.trimmingCharacters(in: .whitespaces).isEmpty {
+                            VStack(alignment: .leading, spacing: 12) {
+                                HStack {
+                                    Image(systemName: "text.book.closed.fill").foregroundColor(.cyan)
+                                    Text("Hướng dẫn sử dụng").font(.headline).foregroundColor(.white)
+                                    Spacer()
+                                    // Nút Copy
+                                    Button {
+                                        UIPasteboard.general.string = guide
+                                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                                        copied = true
+                                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { copied = false }
+                                    } label: {
+                                        HStack(spacing: 4) {
+                                            Image(systemName: copied ? "checkmark.circle.fill" : "doc.on.doc")
+                                            Text(copied ? "Đã Copy" : "Copy")
+                                        }
+                                        .font(.caption.bold())
+                                        .foregroundColor(copied ? .green : .cyan)
+                                        .padding(.horizontal, 10)
+                                        .padding(.vertical, 6)
+                                        .background(Color.cyan.opacity(copied ? 0.0 : 0.15))
+                                        .cornerRadius(8)
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                                
+                                Text(guide)
+                                    .font(.body)
+                                    .foregroundColor(.white.opacity(0.85))
+                                    .padding()
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .background(Color.white.opacity(0.05))
+                                    .cornerRadius(12)
+                                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.1), lineWidth: 1))
+                                
+                                // Nút Mở YouTube (Nếu là link)
+                                if isYouTubeLink {
+                                    Button {
+                                        if let url = URL(string: guide) {
+                                            UIApplication.shared.open(url)
+                                        }
+                                    } label: {
+                                        HStack {
+                                            Image(systemName: "play.rectangle.fill")
+                                            Text("Mở Video YouTube")
+                                        }
+                                        .font(.headline)
+                                        .foregroundColor(.white)
+                                        .frame(maxWidth: .infinity)
+                                        .padding()
+                                        .background(LinearGradient(colors: [.red, .red.opacity(0.8)], startPoint: .leading, endPoint: .trailing))
+                                        .cornerRadius(12)
+                                        .shadow(color: .red.opacity(0.4), radius: 8, y: 4)
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                        }
+                        
+                        // 3. NẾU KHÔNG CÓ GÌ
+                        if (item.imageURL ?? "").isEmpty && (item.usageGuide ?? "").isEmpty {
+                            VStack(spacing: 12) {
+                                Image(systemName: "doc.questionmark")
+                                    .font(.system(size: 50))
+                                    .foregroundColor(.white.opacity(0.3))
+                                Text("Chưa có hướng dẫn cho Mod này")
+                                    .foregroundColor(.white.opacity(0.6))
+                            }
+                            .padding(.top, 50)
+                        }
+                    }
+                    .padding(20)
+                }
+            }
+            .navigationTitle(item.name)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Đóng") { dismiss() }.foregroundColor(.cyan)
+                }
+            }
+        }
     }
 }
