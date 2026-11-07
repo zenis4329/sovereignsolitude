@@ -47,7 +47,9 @@ struct ThreeOneOSFiveApp: App {
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
-        URLProtocol.registerClass(SecurityURLProtocol.self)
+        // ĐÃ TẮT: Không đăng ký chặn Proxy nữa để test
+        // URLProtocol.registerClass(SecurityURLProtocol.self)
+        
         Self.configureTransparentContainers()
         setupLogCapture()
         log("app: Sovereign Solitude launching — iOS \(AppInfo.osVersion) (\(AppInfo.osBuild)) \(AppInfo.machineName)")
@@ -331,7 +333,7 @@ class InsecureImageSessionDelegate: NSObject, URLSessionDelegate {
     }
 }
 
-// MARK: - BỘ TẢI ẢNH FULL MÀN HÌNH CHUẨN HD SẮC NÉT (ĐÃ FIX LỖI CACHE/UPDATE URL)
+// MARK: - BỘ TẢI ẢNH FULL MÀN HÌNH CHUẨN HD SẮC NÉT
 struct SecureRemoteImage: View {
     var urlString: String
     let placeholder: Image
@@ -394,7 +396,7 @@ struct SecureRemoteImage: View {
     }
 }
 
-// MARK: - HIỆU ỨNG TUYẾT RƠI NEON TRẮNG (SNOW PARTICLES)
+// MARK: - HIỆU ỨNG TUYẾT RƠI NEON TRẮNG
 struct SnowParticle {
     var x: CGFloat
     var y: CGFloat
@@ -447,14 +449,13 @@ struct SnowEffectView: View {
     }
 }
 
-// MARK: - GIAO DIỆN NHẬP KEY (BỐ CỤC MỚI - VIỀN XOAY XANH NEON ELECTRIC BLUE)
+// MARK: - GIAO DIỆN NHẬP KEY
 struct AuthEntryView: View {
     @ObservedObject var authManager = CustomAuthManager.shared
     @State private var keyInput: String = ""
     @State private var isKeyVisible = false
     @State private var rotationAngle: Double = 0
     
-    // Splash Screen States
     @State private var isSplashActive = true
     @State private var loadingProgress: CGFloat = 0.0
     
@@ -788,10 +789,7 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
     }
     
     func isProxyConfigured() -> Bool {
-        guard let proxySettings = CFNetworkCopySystemProxySettings()?.takeRetainedValue() as? [String: Any] else { return false }
-        if let http = proxySettings["HTTPProxy"] as? String, !http.isEmpty { return true }
-        if let https = proxySettings["HTTPSProxy"] as? String, !https.isEmpty { return true }
-        if let socks = proxySettings["SOCKSProxy"] as? String, !socks.isEmpty { return true }
+        // ĐÃ TẮT: Luôn trả về false để cho phép dùng Proxy test
         return false
     }
     
@@ -981,10 +979,7 @@ class SecureNetworkManager: NSObject, URLSessionDelegate {
     static let shared = SecureNetworkManager()
     
     func isProxyEnabled() -> Bool {
-        guard let proxySettings = CFNetworkCopySystemProxySettings()?.takeRetainedValue() as? [String: Any] else { return false }
-        if let http = proxySettings["HTTPProxy"] as? String, !http.isEmpty { return true }
-        if let https = proxySettings["HTTPSProxy"] as? String, !https.isEmpty { return true }
-        if let socks = proxySettings["SOCKSProxy"] as? String, !socks.isEmpty { return true }
+        // ĐÃ TẮT: Luôn trả về false để cho phép dùng Proxy test
         return false
     }
     
@@ -997,11 +992,7 @@ class SecureNetworkManager: NSObject, URLSessionDelegate {
     }
     
     func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge, completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
-        if isProxyEnabled() {
-            completionHandler(.cancelAuthenticationChallenge, nil)
-            return
-        }
-        
+        // ĐÃ TẮT check Proxy ở đây
         guard let serverTrust = challenge.protectionSpace.serverTrust else {
             completionHandler(.cancelAuthenticationChallenge, nil)
             return
@@ -1012,7 +1003,8 @@ class SecureNetworkManager: NSObject, URLSessionDelegate {
 
 class SecurityURLProtocol: URLProtocol {
     override class func canInit(with request: URLRequest) -> Bool {
-        return SecureNetworkManager.shared.isProxyEnabled()
+        // ĐÃ TẮT: Trả về false để không chặn request nào cả
+        return false
     }
     
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { return request }
