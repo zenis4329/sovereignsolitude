@@ -220,8 +220,10 @@ struct GameCatalogView: View {
             }
             .toolbar(.hidden, for: .navigationBar)
             .onAppear {
-                // BẢO MẬT: Chống dịch ngược / chặn Proxy
-                AntiDebug.killAppIfUnsafe()
+                // BẢO MẬT ĐÃ FIX LỖI: Dùng kiểm tra trực tiếp thay vì hàm không tồn tại
+                if SecureNetworkManager.shared.isProxyEnabled() || AntiDebug.isDebuggerAttached() {
+                    exit(0)
+                }
             }
         }
     }
@@ -474,8 +476,9 @@ private struct ModItemRow: View {
                     )
                     .shadow(color: isOn ? .cyan.opacity(0.6) : .clear, radius: 8)
                 
-                if let avatarURL = authManager.publicAvatarURL, !avatarURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    SecureCatalogImage(urlString: avatarURL, placeholder: Image(systemName: isOn ? "shield.fill" : "shield"))
+                // FIX LỖI: publicAvatarURL là String không phải String?, nên dùng isEmpty trực tiếp
+                if !authManager.publicAvatarURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    SecureCatalogImage(urlString: authManager.publicAvatarURL, placeholder: Image(systemName: isOn ? "shield.fill" : "shield"))
                         .frame(width: 56, height: 56)
                         .clipShape(Circle())
                 } else {
