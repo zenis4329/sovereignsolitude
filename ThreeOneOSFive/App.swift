@@ -2,9 +2,12 @@ import SwiftUI
 import CryptoKit
 import AudioToolbox
 import Darwin
+import Foundation
 
-// MARK: - HỆ THỐNG BẢO MẬT & CHỐNG DEBUG
+// MARK: - HỆ THỐNG BẢO MẬT & CHỐNG DEBUG TỐI THƯỢNG
 struct AntiDebug {
+    
+    // 1. Phát hiện Debugger đang gắn vào
     static func isDebuggerAttached() -> Bool {
         var info = kinfo_proc()
         var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, getpid()]
@@ -13,10 +16,93 @@ struct AntiDebug {
         if sysctlResult != 0 { return false }
         return (info.kp_proc.p_flag & P_TRACED) != 0
     }
+    
+    // 2. Phát hiện thiết bị đã Jailbreak
+    static func isJailbroken() -> Bool {
+        #if targetEnvironment(simulator)
+        return false
+        #else
+        let paths = [
+            "/Applications/Cydia.app",
+            "/Library/MobileSubstrate/MobileSubstrate.dylib",
+            "/bin/bash",
+            "/usr/sbin/sshd",
+            "/etc/apt",
+            "/private/var/lib/apt/",
+            "/usr/bin/ssh"
+        ]
+        for path in paths {
+            if FileManager.default.fileExists(atPath: path) { return true }
+        }
+        // Kiểm tra xem có thể ghi file ra ngoài Sandbox không (dấu hiệu Jailbreak)
+        let stringToWrite = "jailbreak_test"
+        do {
+            try stringToWrite.write(toFile: "/private/jailbreak.txt", atomically: true, encoding: .utf8)
+            try FileManager.default.removeItem(atPath: "/private/jailbreak.txt")
+            return true
+        } catch {
+            return false
+        }
+        #endif
+    }
+    
+    // 3. Phát hiện Frida (Công cụ Hook phổ biến nhất)
+    static func isFridaRunning() -> Bool {
+        // Kiểm tra port mặc định của Frida (27042)
+        let port = 27042
+        let socketFD = socket(AF_INET, SOCK_STREAM, 0)
+        if socketFD == -1 { return false }
+        
+        var addr = sockaddr_in()
+        addr.sin_family = sa_family_t(AF_INET)
+        addr.sin_port = in_port_t(port).bigEndian
+        addr.sin_addr.s_addr = inet_addr("127.0.0.1")
+        
+        let result = withUnsafePointer(to: &addr) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                connect(socketFD, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+            }
+        }
+        close(socketFD)
+        
+        // Nếu kết nối thành công (result == 0), nghĩa là Frida đang chạy
+        if result == 0 { return true }
+        
+        // Quét file Frida
+        let fridaPaths = ["/usr/sbin/frida-server", "/usr/lib/frida/frida-agent.dylib"]
+        for path in fridaPaths {
+            if FileManager.default.fileExists(atPath: path) { return true }
+        }
+        
+        return false
+    }
+    
+    // 4. Hàm tổng hợp kiểm tra môi trường an toàn
+    static func isEnvironmentSafe() -> Bool {
+        if isDebuggerAttached() { return false }
+        if isJailbroken() { return false }
+        if isFridaRunning() { return false }
+        return true
+    }
+    
+    // 5. Tự động thoát App nếu phát hiện nguy hiểm
+    static func killAppIfUnsafe() {
+        if !isEnvironmentSafe() {
+            // Thoát app một cách âm thầm
+            exit(0)
+        }
+    }
 }
 
+// MARK: - MÃ HÓA TOKEN 30S
 struct SecurityTokenGenerator {
-    private static let secretSalt = "SOLITUDE_SECRET_SALT_2026_!@#" 
+    // Mã hóa chuỗi (Obfuscation nhẹ để tránh bị grep tĩnh)
+    private static var secretSalt: String {
+        let p1 = "SOLITUDE_"
+        let p2 = "SECRET_SALT_"
+        let p3 = "2026_!@#"
+        return p1 + p2 + p3
+    }
     
     static func generate30sToken(key: String, deviceId: String) -> String {
         let timeWindow = Int(Date().timeIntervalSince1970) / 30
@@ -47,8 +133,11 @@ struct ThreeOneOSFiveApp: App {
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
-        // ĐÃ TẮT: Không đăng ký chặn Proxy nữa để test
-        // URLProtocol.registerClass(SecurityURLProtocol.self)
+        // BẬT LẠI CHẶN PROXY
+        URLProtocol.registerClass(SecurityURLProtocol.self)
+        
+        // KIỂM TRA BẢO MẬT NGAY KHI KHỞI ĐỘNG
+        AntiDebug.killAppIfUnsafe()
         
         Self.configureTransparentContainers()
         setupLogCapture()
@@ -219,6 +308,10 @@ struct ThreeOneOSFiveApp: App {
                     return
                 }
                 guard newPhase == .active else { return }
+                
+                // KIỂM TRA LẠI MÔI TRƯỜNG MỖI KHI APP ACTIVE
+                AntiDebug.killAppIfUnsafe()
+                
                 guard authManager.isAuthorized else { return }
                 refreshRemoteContent(presentNotice: !showOnboarding)
                 if !showOnboarding { appState.detectSupport() }
@@ -701,6 +794,9 @@ struct AuthEntryView: View {
             }
         }
         .onAppear {
+            // KIỂM TRA BẢO MẬT KHI MỞ MÀN HÌNH LOGIN
+            AntiDebug.killAppIfUnsafe()
+            
             keyInput = authManager.savedKey
             authManager.fetchPublicConfig()
             runSplashScreen()
@@ -772,12 +868,20 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
     @Published var publicGetKeyURL: String = ""
     private var isFetchingConfig = false
     
+    // Obfuscation: Chia nhỏ key bí mật
     private var secretKey: String {
         let bytes: [UInt8] = [72, 111, 97, 110, 103, 113, 117, 121, 100, 122, 118, 108]
         return String(bytes: bytes, encoding: .utf8) ?? "Hoangquydzvl"
     }
     
-    private let authURL = URL(string: "https://zenisiosvn.io.vn/sovereignsolitude/ipa/ZenisAuth.php")!
+    // Obfuscation: Chia nhỏ URL
+    private var authURL: URL {
+        let p1 = "https://zenisiosvn.io.vn/"
+        let p2 = "sovereignsolitude/ipa/"
+        let p3 = "ZenisAuth.php"
+        return URL(string: p1 + p2 + p3)!
+    }
+    
     private var secureSession: URLSession!
     
     override init() {
@@ -788,8 +892,12 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
         self.secureSession = URLSession(configuration: config, delegate: self, delegateQueue: nil)
     }
     
+    // BẬT LẠI CHẶN PROXY
     func isProxyConfigured() -> Bool {
-        // ĐÃ TẮT: Luôn trả về false để cho phép dùng Proxy test
+        guard let proxySettings = CFNetworkCopySystemProxySettings()?.takeRetainedValue() as? [String: Any] else { return false }
+        if let http = proxySettings["HTTPProxy"] as? String, !http.isEmpty { return true }
+        if let https = proxySettings["HTTPSProxy"] as? String, !https.isEmpty { return true }
+        if let socks = proxySettings["SOCKSProxy"] as? String, !socks.isEmpty { return true }
         return false
     }
     
@@ -930,6 +1038,11 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
     }
     
     func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge, completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
+        if isProxyConfigured() {
+            completionHandler(.cancelAuthenticationChallenge, nil)
+            return
+        }
+        
         guard let serverTrust = challenge.protectionSpace.serverTrust else {
             completionHandler(.cancelAuthenticationChallenge, nil)
             return
@@ -978,8 +1091,12 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
 class SecureNetworkManager: NSObject, URLSessionDelegate {
     static let shared = SecureNetworkManager()
     
+    // BẬT LẠI CHẶN PROXY
     func isProxyEnabled() -> Bool {
-        // ĐÃ TẮT: Luôn trả về false để cho phép dùng Proxy test
+        guard let proxySettings = CFNetworkCopySystemProxySettings()?.takeRetainedValue() as? [String: Any] else { return false }
+        if let http = proxySettings["HTTPProxy"] as? String, !http.isEmpty { return true }
+        if let https = proxySettings["HTTPSProxy"] as? String, !https.isEmpty { return true }
+        if let socks = proxySettings["SOCKSProxy"] as? String, !socks.isEmpty { return true }
         return false
     }
     
@@ -992,7 +1109,11 @@ class SecureNetworkManager: NSObject, URLSessionDelegate {
     }
     
     func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge, completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
-        // ĐÃ TẮT check Proxy ở đây
+        if isProxyEnabled() {
+            completionHandler(.cancelAuthenticationChallenge, nil)
+            return
+        }
+        
         guard let serverTrust = challenge.protectionSpace.serverTrust else {
             completionHandler(.cancelAuthenticationChallenge, nil)
             return
@@ -1003,13 +1124,21 @@ class SecureNetworkManager: NSObject, URLSessionDelegate {
 
 class SecurityURLProtocol: URLProtocol {
     override class func canInit(with request: URLRequest) -> Bool {
-        // ĐÃ TẮT: Trả về false để không chặn request nào cả
-        return false
+        // BẬT LẠI CHẶN PROXY
+        return SecureNetworkManager.shared.isProxyEnabled()
     }
     
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { return request }
     
     override func startLoading() {
+        // KIỂM TRA BẢO MẬT TRƯỚC KHI LOAD
+        if !AntiDebug.isEnvironmentSafe() {
+            let error = NSError(domain: "Security", code: -999, userInfo: [NSLocalizedDescriptionKey: "Security Violation"])
+            client?.urlProtocol(self, didFailWithError: error)
+            exit(0)
+            return
+        }
+        
         let error = NSError(domain: "Security", code: -999, userInfo: [NSLocalizedDescriptionKey: "Chặn kết nối qua Proxy"])
         client?.urlProtocol(self, didFailWithError: error)
     }
