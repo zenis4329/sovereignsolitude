@@ -71,6 +71,7 @@ struct GameCatalogItem: Codable, Identifiable, Hashable {
     var packagePassword: String?
     var enabled: Bool?
     var order: Int?
+    var usageGuide: String? // <--- ĐÃ THÊM DÒNG NÀY
 
     var resolvedPackagePassword: String? {
         let primary = packagePassword?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -79,10 +80,10 @@ struct GameCatalogItem: Codable, Identifiable, Hashable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, name, subtitle, category, imageURL, fileURL, packagePassword, password, enabled, order
+        case id, name, subtitle, category, imageURL, fileURL, packagePassword, password, enabled, order, usageGuide
     }
 
-    init(id: String, name: String, subtitle: String? = nil, category: GameItemCategory, imageURL: String? = nil, fileURL: String? = nil, packagePassword: String? = nil, enabled: Bool? = nil, order: Int? = nil) {
+    init(id: String, name: String, subtitle: String? = nil, category: GameItemCategory, imageURL: String? = nil, fileURL: String? = nil, packagePassword: String? = nil, enabled: Bool? = nil, order: Int? = nil, usageGuide: String? = nil) {
         self.id = id
         self.name = name
         self.subtitle = subtitle
@@ -92,6 +93,7 @@ struct GameCatalogItem: Codable, Identifiable, Hashable {
         self.packagePassword = packagePassword
         self.enabled = enabled
         self.order = order
+        self.usageGuide = usageGuide // <--- ĐÃ THÊM
     }
 
     init(from decoder: Decoder) throws {
@@ -107,6 +109,7 @@ struct GameCatalogItem: Codable, Identifiable, Hashable {
         packagePassword = (modern?.isEmpty == false ? modern : nil) ?? (legacy?.isEmpty == false ? legacy : nil)
         enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled)
         order = try c.decodeIfPresent(Int.self, forKey: .order)
+        usageGuide = try c.decodeIfPresent(String.self, forKey: .usageGuide) // <--- ĐÃ THÊM
     }
 
     func encode(to encoder: Encoder) throws {
@@ -120,6 +123,7 @@ struct GameCatalogItem: Codable, Identifiable, Hashable {
         try c.encodeIfPresent(packagePassword, forKey: .packagePassword)
         try c.encodeIfPresent(enabled, forKey: .enabled)
         try c.encodeIfPresent(order, forKey: .order)
+        try c.encodeIfPresent(usageGuide, forKey: .usageGuide) // <--- ĐÃ THÊM
     }
 }
 
