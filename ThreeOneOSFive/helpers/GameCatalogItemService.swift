@@ -28,13 +28,18 @@ enum GameCatalogItemService {
         try data.write(to: url, options: .atomic)
     }
 
+    // TỰ ĐỘNG CHUYỂN ĐỔI LINK: ?file= THÀNH /
+    private static func formatSecureURL(_ rawURL: String?) -> URL? {
+        guard let raw = rawURL?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else { return nil }
+        let fixedRaw = raw.replacingOccurrences(of: "?file=", with: "/")
+        return URL(string: fixedRaw)
+    }
+
     static func prefetchAll(from catalog: GameCatalog) async {
         let urls: [(String, URL)] = catalog.games.flatMap { game in
             game.items.compactMap { item in
-                guard let raw = item.fileURL?.trimmingCharacters(in: .whitespacesAndNewlines),
-                      !raw.isEmpty,
-                      let url = URL(string: raw)
-                else { return nil }
+                // Sử dụng hàm formatSecureURL ở đây
+                guard let url = formatSecureURL(item.fileURL) else { return nil }
                 return (item.id, url)
             }
         }
@@ -56,9 +61,8 @@ enum GameCatalogItemService {
         return await withTaskGroup(of: (String, Int)?.self, returning: [String: Int].self) { group in
             for item in items {
                 group.addTask {
-                    guard let raw = item.fileURL?.trimmingCharacters(in: .whitespacesAndNewlines),
-                          !raw.isEmpty,
-                          let remoteURL = URL(string: raw),
+                    // Sử dụng hàm formatSecureURL ở đây
+                    guard let remoteURL = formatSecureURL(item.fileURL),
                           let localURL = try? await ensureLocalPackage(itemID: item.id, remoteURL: remoteURL),
                           let data = try? Data(contentsOf: localURL),
                           let decoded = try? PatchPackageCodec.decode(data, password: item.resolvedPackagePassword)
@@ -86,6 +90,7 @@ enum GameCatalogItemService {
         let localURL = try localPackageURL(itemID: itemID)
         let sourceURL = localURL.appendingPathExtension("source")
         let currentSource = try? String(contentsOf: sourceURL, encoding: .utf8)
+        
         if FileManager.default.fileExists(atPath: localURL.path),
            (try? localURL.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0 > 64,
            currentSource == remoteURL.absoluteString {
@@ -132,10 +137,8 @@ enum GameCatalogItemService {
     }
 
     static func enable(item: GameCatalogItem) async throws {
-        guard let raw = item.fileURL?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !raw.isEmpty,
-              let remoteURL = URL(string: raw)
-        else { throw PatchPackageError.invalidImportLink }
+        // Sử dụng hàm formatSecureURL ở đây
+        guard let remoteURL = formatSecureURL(item.fileURL) else { throw PatchPackageError.invalidImportLink }
 
         let localURL = try await ensureLocalPackage(itemID: item.id, remoteURL: remoteURL)
         let password = item.resolvedPackagePassword
