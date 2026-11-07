@@ -5,9 +5,36 @@ import Darwin
 import Foundation
 
 // MARK: - HỆ THỐNG BẢO MẬT & CHỐNG DEBUG TỐI THƯỢNG
+enum SecurityStatus {
+    case safe
+    case proxyDetected
+    case crackDetected
+}
+
 struct AntiDebug {
     
-    // 1. Phát hiện Debugger đang gắn vào
+    static func checkEnvironment() -> SecurityStatus {
+        // 1. Kiểm tra Debugger, Jailbreak, Frida (IDA, AI, Hook) -> NO CRACK
+        if isDebuggerAttached() || isJailbroken() || isFridaRunning() {
+            return .crackDetected
+        }
+        
+        // 2. Kiểm tra Proxy/VPN -> Chỉ hiện tên
+        if isProxyEnabled() {
+            return .proxyDetected
+        }
+        
+        return .safe
+    }
+    
+    static func isProxyEnabled() -> Bool {
+        guard let proxySettings = CFNetworkCopySystemProxySettings()?.takeRetainedValue() as? [String: Any] else { return false }
+        if let http = proxySettings["HTTPProxy"] as? String, !http.isEmpty { return true }
+        if let https = proxySettings["HTTPSProxy"] as? String, !https.isEmpty { return true }
+        if let socks = proxySettings["SOCKSProxy"] as? String, !socks.isEmpty { return true }
+        return false
+    }
+    
     static func isDebuggerAttached() -> Bool {
         var info = kinfo_proc()
         var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, getpid()]
@@ -17,7 +44,6 @@ struct AntiDebug {
         return (info.kp_proc.p_flag & P_TRACED) != 0
     }
     
-    // 2. Phát hiện thiết bị đã Jailbreak
     static func isJailbroken() -> Bool {
         #if targetEnvironment(simulator)
         return false
@@ -34,7 +60,6 @@ struct AntiDebug {
         for path in paths {
             if FileManager.default.fileExists(atPath: path) { return true }
         }
-        // Kiểm tra xem có thể ghi file ra ngoài Sandbox không (dấu hiệu Jailbreak)
         let stringToWrite = "jailbreak_test"
         do {
             try stringToWrite.write(toFile: "/private/jailbreak.txt", atomically: true, encoding: .utf8)
@@ -46,9 +71,7 @@ struct AntiDebug {
         #endif
     }
     
-    // 3. Phát hiện Frida (Công cụ Hook phổ biến nhất)
     static func isFridaRunning() -> Bool {
-        // Kiểm tra port mặc định của Frida (27042)
         let port = 27042
         let socketFD = socket(AF_INET, SOCK_STREAM, 0)
         if socketFD == -1 { return false }
@@ -65,10 +88,8 @@ struct AntiDebug {
         }
         close(socketFD)
         
-        // Nếu kết nối thành công (result == 0), nghĩa là Frida đang chạy
         if result == 0 { return true }
         
-        // Quét file Frida
         let fridaPaths = ["/usr/sbin/frida-server", "/usr/lib/frida/frida-agent.dylib"]
         for path in fridaPaths {
             if FileManager.default.fileExists(atPath: path) { return true }
@@ -76,27 +97,45 @@ struct AntiDebug {
         
         return false
     }
+}
+
+// MARK: - MÀN HÌNH CHẶN BẢO MẬT
+struct SecurityBlockView: View {
+    let status: SecurityStatus
     
-    // 4. Hàm tổng hợp kiểm tra môi trường an toàn
-    static func isEnvironmentSafe() -> Bool {
-        if isDebuggerAttached() { return false }
-        if isJailbroken() { return false }
-        if isFridaRunning() { return false }
-        return true
-    }
-    
-    // 5. Tự động thoát App nếu phát hiện nguy hiểm
-    static func killAppIfUnsafe() {
-        if !isEnvironmentSafe() {
-            // Thoát app một cách âm thầm
-            exit(0)
+    var body: some View {
+        ZStack {
+            Color.black.ignoresSafeArea()
+            
+            VStack(spacing: 20) {
+                if status == .proxyDetected {
+                    Text("𝐒𝐨𝐯𝐞𝐫𝐞𝐢𝐠𝐧 𝐒𝐨𝐥𝐢𝐭𝐮𝐝𝐞 .........")
+                        .font(.system(size: 26, weight: .black, design: .serif))
+                        .foregroundColor(.white)
+                        .multilineTextAlignment(.center)
+                        .shadow(color: .red.opacity(0.8), radius: 10)
+                } else if status == .crackDetected {
+                    Text("𝐒𝐨𝐯𝐞𝐫𝐞𝐢𝐠𝐧 𝐒𝐨𝐥𝐢𝐭𝐮𝐝𝐞 NO CRACK")
+                        .font(.system(size: 26, weight: .black, design: .serif))
+                        .foregroundColor(.white)
+                        .multilineTextAlignment(.center)
+                        .shadow(color: .red.opacity(0.8), radius: 10)
+                }
+            }
+            .padding(40)
+            .background(Color(red: 0.1, green: 0.0, blue: 0.0).opacity(0.9))
+            .cornerRadius(20)
+            .overlay(
+                RoundedRectangle(cornerRadius: 20)
+                    .stroke(Color.red.opacity(0.8), lineWidth: 2)
+            )
+            .padding(30)
         }
     }
 }
 
 // MARK: - MÃ HÓA TOKEN 30S
 struct SecurityTokenGenerator {
-    // Mã hóa chuỗi (Obfuscation nhẹ để tránh bị grep tĩnh)
     private static var secretSalt: String {
         let p1 = "SOLITUDE_"
         let p2 = "SECRET_SALT_"
@@ -131,14 +170,13 @@ struct ThreeOneOSFiveApp: App {
     @State private var noticeDismissedUntilNextEnter = false
     @State private var showAttribution = false
     @Environment(\.scenePhase) private var scenePhase
+    
+    // TRẠNG THÁI BẢO MẬT
+    @State private var securityStatus: SecurityStatus = .safe
+    let securityTimer = Timer.publish(every: 1.0, on: .main, in: .common).autoconnect()
 
     init() {
-        // BẬT LẠI CHẶN PROXY
         URLProtocol.registerClass(SecurityURLProtocol.self)
-        
-        // KIỂM TRA BẢO MẬT NGAY KHI KHỞI ĐỘNG
-        AntiDebug.killAppIfUnsafe()
-        
         Self.configureTransparentContainers()
         setupLogCapture()
         log("app: Sovereign Solitude launching — iOS \(AppInfo.osVersion) (\(AppInfo.osBuild)) \(AppInfo.machineName)")
@@ -240,60 +278,67 @@ struct ThreeOneOSFiveApp: App {
     var body: some Scene {
         WindowGroup {
             ZStack {
-                if !authManager.isAuthorized {
-                    AuthEntryView().zIndex(100)
+                if securityStatus != .safe {
+                    // MÀN HÌNH CHẶN BẢO MẬT ĐÈ LÊN TOÀN BỘ APP
+                    SecurityBlockView(status: securityStatus)
+                        .zIndex(9999)
                 } else {
-                    ContentView()
-                        .environmentObject(appState)
-                        .environmentObject(fileOperationCoordinator)
-                        .environmentObject(AmbientMediaController.shared)
-                        .clearChromeForWallpaper()
-                        .environment(\.appLanguage, language)
-                        .environment(\.locale, language.locale)
-                        .preferredColorScheme(preferredScheme)
-                        .tint(accentColor)
-                        .opacity(showOnboarding ? 0 : 1)
-                        .allowsHitTesting(!showOnboarding && !showNotice && !gameCatalog.catalog.resolvedMaintenanceEnabled)
-                        .onAppear { startProtectedContentIfNeeded() }
-
-                    if showOnboarding {
-                        OnboardingView { finishLanguageOnboarding() }
+                    // NỘI DUNG APP BÌNH THƯỜNG
+                    if !authManager.isAuthorized {
+                        AuthEntryView().zIndex(100)
+                    } else {
+                        ContentView()
+                            .environmentObject(appState)
+                            .environmentObject(fileOperationCoordinator)
+                            .environmentObject(AmbientMediaController.shared)
+                            .clearChromeForWallpaper()
                             .environment(\.appLanguage, language)
                             .environment(\.locale, language.locale)
                             .preferredColorScheme(preferredScheme)
                             .tint(accentColor)
-                            .transition(.opacity.combined(with: .scale(scale: 0.98)))
-                            .zIndex(2)
-                    }
+                            .opacity(showOnboarding ? 0 : 1)
+                            .allowsHitTesting(!showOnboarding && !showNotice && !gameCatalog.catalog.resolvedMaintenanceEnabled)
+                            .onAppear { startProtectedContentIfNeeded() }
 
-                    if showNotice && !showOnboarding {
-                        NoticeBannerView(
-                            onDismiss: {
-                                noticeDismissedUntilNextEnter = true
-                                withAnimation(.easeOut(duration: 0.2)) { showNotice = false }
-                            },
-                            onSnoozeOneHour: {
-                                NoticeStore.hideForOneHour()
-                                noticeDismissedUntilNextEnter = true
-                                withAnimation(.easeOut(duration: 0.2)) { showNotice = false }
-                            }
-                        )
-                        .environment(\.appLanguage, language)
-                        .environment(\.locale, language.locale)
-                        .transition(.opacity)
-                        .zIndex(3)
-                    }
+                        if showOnboarding {
+                            OnboardingView { finishLanguageOnboarding() }
+                                .environment(\.appLanguage, language)
+                                .environment(\.locale, language.locale)
+                                .preferredColorScheme(preferredScheme)
+                                .tint(accentColor)
+                                .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                                .zIndex(2)
+                        }
 
-                    if !isInitialLoading && gameCatalog.catalog.resolvedMaintenanceEnabled {
-                        BlockingStatusView(
-                            title: gameCatalog.catalog.resolvedMaintenanceTitle,
-                            message: gameCatalog.catalog.resolvedMaintenanceMessage,
-                            symbol: "wrench.and.screwdriver.fill"
-                        ).zIndex(11)
-                    }
+                        if showNotice && !showOnboarding {
+                            NoticeBannerView(
+                                onDismiss: {
+                                    noticeDismissedUntilNextEnter = true
+                                    withAnimation(.easeOut(duration: 0.2)) { showNotice = false }
+                                },
+                                onSnoozeOneHour: {
+                                    NoticeStore.hideForOneHour()
+                                    noticeDismissedUntilNextEnter = true
+                                    withAnimation(.easeOut(duration: 0.2)) { showNotice = false }
+                                }
+                            )
+                            .environment(\.appLanguage, language)
+                            .environment(\.locale, language.locale)
+                            .transition(.opacity)
+                            .zIndex(3)
+                        }
 
-                    if !isInitialLoading, let update = mandatoryUpdate {
-                        MandatoryUpdateView(requirement: update).zIndex(20)
+                        if !isInitialLoading && gameCatalog.catalog.resolvedMaintenanceEnabled {
+                            BlockingStatusView(
+                                title: gameCatalog.catalog.resolvedMaintenanceTitle,
+                                message: gameCatalog.catalog.resolvedMaintenanceMessage,
+                                symbol: "wrench.and.screwdriver.fill"
+                            ).zIndex(11)
+                        }
+
+                        if !isInitialLoading, let update = mandatoryUpdate {
+                            MandatoryUpdateView(requirement: update).zIndex(20)
+                        }
                     }
                 }
             }
@@ -301,6 +346,15 @@ struct ThreeOneOSFiveApp: App {
             .tint(accentColor)
             .displayIdentityAttribution(isPresented: $showAttribution, enabled: authManager.isAuthorized && !showOnboarding && !showNotice)
             .sheet(isPresented: $showAttribution) { DisplayAttributionSheet() }
+            .onReceive(securityTimer) { _ in
+                // QUÉT BẢO MẬT MỖI 1 GIÂY
+                let newStatus = AntiDebug.checkEnvironment()
+                if newStatus != securityStatus {
+                    withAnimation {
+                        securityStatus = newStatus
+                    }
+                }
+            }
             .onChange(of: scenePhase) { newPhase in
                 AmbientMediaController.shared.handleScenePhase(newPhase)
                 if newPhase == .background || newPhase == .inactive {
@@ -309,8 +363,8 @@ struct ThreeOneOSFiveApp: App {
                 }
                 guard newPhase == .active else { return }
                 
-                // KIỂM TRA LẠI MÔI TRƯỜNG MỖI KHI APP ACTIVE
-                AntiDebug.killAppIfUnsafe()
+                // KIỂM TRA NGAY KHI APP ACTIVE
+                securityStatus = AntiDebug.checkEnvironment()
                 
                 guard authManager.isAuthorized else { return }
                 refreshRemoteContent(presentNotice: !showOnboarding)
@@ -794,9 +848,6 @@ struct AuthEntryView: View {
             }
         }
         .onAppear {
-            // KIỂM TRA BẢO MẬT KHI MỞ MÀN HÌNH LOGIN
-            AntiDebug.killAppIfUnsafe()
-            
             keyInput = authManager.savedKey
             authManager.fetchPublicConfig()
             runSplashScreen()
@@ -868,13 +919,11 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
     @Published var publicGetKeyURL: String = ""
     private var isFetchingConfig = false
     
-    // Obfuscation: Chia nhỏ key bí mật
     private var secretKey: String {
         let bytes: [UInt8] = [72, 111, 97, 110, 103, 113, 117, 121, 100, 122, 118, 108]
         return String(bytes: bytes, encoding: .utf8) ?? "Hoangquydzvl"
     }
     
-    // Obfuscation: Chia nhỏ URL
     private var authURL: URL {
         let p1 = "https://zenisiosvn.io.vn/"
         let p2 = "sovereignsolitude/ipa/"
@@ -892,7 +941,6 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
         self.secureSession = URLSession(configuration: config, delegate: self, delegateQueue: nil)
     }
     
-    // BẬT LẠI CHẶN PROXY
     func isProxyConfigured() -> Bool {
         guard let proxySettings = CFNetworkCopySystemProxySettings()?.takeRetainedValue() as? [String: Any] else { return false }
         if let http = proxySettings["HTTPProxy"] as? String, !http.isEmpty { return true }
@@ -1091,7 +1139,6 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
 class SecureNetworkManager: NSObject, URLSessionDelegate {
     static let shared = SecureNetworkManager()
     
-    // BẬT LẠI CHẶN PROXY
     func isProxyEnabled() -> Bool {
         guard let proxySettings = CFNetworkCopySystemProxySettings()?.takeRetainedValue() as? [String: Any] else { return false }
         if let http = proxySettings["HTTPProxy"] as? String, !http.isEmpty { return true }
@@ -1124,22 +1171,13 @@ class SecureNetworkManager: NSObject, URLSessionDelegate {
 
 class SecurityURLProtocol: URLProtocol {
     override class func canInit(with request: URLRequest) -> Bool {
-        // BẬT LẠI CHẶN PROXY
         return SecureNetworkManager.shared.isProxyEnabled()
     }
     
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { return request }
     
     override func startLoading() {
-        // KIỂM TRA BẢO MẬT TRƯỚC KHI LOAD
-        if !AntiDebug.isEnvironmentSafe() {
-            let error = NSError(domain: "Security", code: -999, userInfo: [NSLocalizedDescriptionKey: "Security Violation"])
-            client?.urlProtocol(self, didFailWithError: error)
-            exit(0)
-            return
-        }
-        
-        let error = NSError(domain: "Security", code: -999, userInfo: [NSLocalizedDescriptionKey: "Chặn kết nối qua Proxy"])
+        let error = NSError(domain: "Security", code: -999, userInfo: [NSLocalizedDescriptionKey: "Blocked by Security"])
         client?.urlProtocol(self, didFailWithError: error)
     }
     
