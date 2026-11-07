@@ -394,3 +394,172 @@ private struct DashboardView: View {
         }
     }
 }
+
+// MARK: - GIAO DIỆN THÔNG BÁO MỚI (ĐÃ ĐÍNH KÈM)
+struct NoticeBannerView: View {
+    let onDismiss: () -> Void
+    let onSnoozeOneHour: () -> Void
+    
+    @StateObject private var authManager = CustomAuthManager.shared
+    @StateObject private var store = GameCatalogStore.shared
+    
+    // Lấy nội dung thông báo từ config
+    private var noticeMessage: String {
+        let msg = store.catalog.noticeMessage.trimmingCharacters(in: .whitespacesAndNewlines)
+        return msg.isEmpty ? "Chúc Anh Em Chơi Game Vui Vẻ 🥰" : msg
+    }
+    
+    var body: some View {
+        ZStack {
+            // Lớp nền tối mờ đè lên toàn bộ app
+            Color.black.opacity(0.8)
+                .ignoresSafeArea()
+                .onTapGesture {
+                    // Không cho phép tắt bằng cách chạm ra ngoài
+                }
+            
+            // KHUNG THÔNG BÁO (GLASSMORPHISM)
+            VStack(spacing: 20) {
+                
+                // 1. HEADER: AVATAR & TÊN APP
+                VStack(spacing: 12) {
+                    ZStack {
+                        // Hào quang phát sáng
+                        Circle()
+                            .fill(Color(hex: "#00f2fe").opacity(0.3))
+                            .frame(width: 90, height: 90)
+                            .blur(radius: 15)
+                        
+                        // Vòng viền Neon
+                        Circle()
+                            .stroke(
+                                LinearGradient(colors: [Color(hex: "#00f2fe"), Color(hex: "#4facfe"), .white], startPoint: .topLeading, endPoint: .bottomTrailing),
+                                lineWidth: 2.5
+                            )
+                            .frame(width: 76, height: 76)
+                            .shadow(color: Color(hex: "#00f2fe").opacity(0.8), radius: 8)
+                        
+                        // Avatar
+                        SecureRemoteImage(urlString: authManager.publicAvatarURL, placeholder: Image(systemName: "person.crop.circle.fill"))
+                            .frame(width: 68, height: 68)
+                            .clipShape(Circle())
+                    }
+                    
+                    // Tên App
+                    Text("𝐒𝐨𝐯𝐞𝐫𝐞𝐢𝐠𝐧 𝐒𝐨𝐥𝐢𝐭𝐮𝐝𝐞")
+                        .font(.system(size: 22, weight: .black, design: .serif))
+                        .foregroundColor(.white)
+                        .shadow(color: Color(hex: "#00f2fe").opacity(0.6), radius: 8)
+                    
+                    // Tiêu đề Thông báo
+                    HStack(spacing: 6) {
+                        Circle().fill(Color.green).frame(width: 6, height: 6)
+                            .shadow(color: .green, radius: 4)
+                        Text("THÔNG BÁO HỆ THỐNG")
+                            .font(.system(size: 12, weight: .bold, design: .monospaced))
+                            .foregroundColor(Color(hex: "#00f2fe"))
+                            .tracking(1.5)
+                    }
+                }
+                .padding(.top, 10)
+                
+                // 2. NỘI DUNG THÔNG BÁO
+                ScrollView(.vertical, showsIndicators: false) {
+                    Text(noticeMessage)
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundColor(.white.opacity(0.9))
+                        .multilineTextAlignment(.center)
+                        .lineSpacing(4)
+                        .padding(.horizontal, 10)
+                        .frame(maxWidth: .infinity)
+                }
+                .frame(maxHeight: 150)
+                .padding(16)
+                .background(
+                    RoundedRectangle(cornerRadius: 16)
+                        .fill(Color.black.opacity(0.4))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 16)
+                                .stroke(Color.white.opacity(0.1), lineWidth: 1)
+                        )
+                )
+                
+                // 3. CÁC NÚT BẤM
+                VStack(spacing: 12) {
+                    // Nút OK
+                    Button(action: {
+                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                        onDismiss()
+                    }) {
+                        Text("OK")
+                            .font(.system(size: 16, weight: .bold))
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 50)
+                            .background(
+                                LinearGradient(colors: [Color(hex: "#00f2fe"), Color(hex: "#4facfe")], startPoint: .leading, endPoint: .trailing)
+                            )
+                            .cornerRadius(14)
+                            .shadow(color: Color(hex: "#00f2fe").opacity(0.4), radius: 8, y: 4)
+                    }
+                    
+                    // Nút Ẩn 1 Giờ
+                    Button(action: {
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        onSnoozeOneHour()
+                    }) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "clock.arrow.circlepath")
+                            Text("HIDE FOR 1H")
+                        }
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundColor(.white.opacity(0.7))
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 50)
+                        .background(Color.white.opacity(0.1))
+                        .cornerRadius(14)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 14)
+                                .stroke(Color.white.opacity(0.2), lineWidth: 1)
+                        )
+                    }
+                }
+                .padding(.bottom, 10)
+                
+            }
+            .padding(24)
+            .background(
+                // Nền kính mờ (Glassmorphism)
+                ZStack {
+                    RoundedRectangle(cornerRadius: 28)
+                        .fill(.ultraThinMaterial)
+                        .environment(\.colorScheme, .dark)
+                    
+                    RoundedRectangle(cornerRadius: 28)
+                        .fill(
+                            LinearGradient(
+                                colors: [Color(hex: "#00f2fe").opacity(0.15), Color.black.opacity(0.6)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                }
+            )
+            // Viền phát sáng
+            .overlay(
+                RoundedRectangle(cornerRadius: 28)
+                    .stroke(
+                        LinearGradient(
+                            colors: [Color(hex: "#00f2fe").opacity(0.8), Color.white.opacity(0.2), Color.clear],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        lineWidth: 1.5
+                    )
+            )
+            .shadow(color: .black.opacity(0.5), radius: 30, y: 15)
+            .shadow(color: Color(hex: "#00f2fe").opacity(0.2), radius: 15)
+            .padding(.horizontal, 24)
+        }
+    }
+}
