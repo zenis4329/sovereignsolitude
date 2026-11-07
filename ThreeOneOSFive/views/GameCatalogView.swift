@@ -431,11 +431,11 @@ private struct GameDetailView: View {
     }
 }
 
-// MARK: - HÀNG CHỨA TỪNG BẢN MOD (ĐÃ THÊM NÚT XEM HDSD)
+// MARK: - HÀNG CHỨA TỪNG BẢN MOD (ĐÃ XÓA NÚT KÍNH LÚP - TỰ ĐỘNG HIỆN POPUP KHI BẬT)
 private struct ModItemRow: View {
     let item: GameCatalogItem
     @StateObject private var store = GameCatalogStore.shared
-    @State private var showDetailSheet = false // <--- Thêm biến bật popup
+    @State private var showDetailSheet = false
     
     private var isVip: Bool {
         item.name.localizedCaseInsensitiveContains("VIP")
@@ -444,7 +444,7 @@ private struct ModItemRow: View {
     }
     
     private var hasGuide: Bool {
-        !(item.usageGuide ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !(item.imageURL ?? "").isEmpty
+        !(item.usageGuide ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !(item.imageURL ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
     
     var body: some View {
@@ -500,24 +500,7 @@ private struct ModItemRow: View {
             
             Spacer()
             
-            // NÚT XEM HDSD (Hiện nếu có ảnh hoặc HDSD)
-            if hasGuide {
-                Button(action: {
-                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                    showDetailSheet = true
-                }) {
-                    Image(systemName: "doc.text.magnifyingglass")
-                        .font(.system(size: 16, weight: .bold))
-                        .foregroundColor(.cyan)
-                        .frame(width: 38, height: 38)
-                        .background(Color.cyan.opacity(0.15))
-                        .clipShape(Circle())
-                        .overlay(Circle().stroke(Color.cyan.opacity(0.5), lineWidth: 1))
-                }
-                .buttonStyle(.plain)
-            }
-            
-            // Toggle
+            // Toggle (Đã xóa nút kính lúp, tự động hiện popup khi bật)
             if busy {
                 ProgressView().tint(.cyan).scaleEffect(1.2).padding(.trailing, 5)
             } else {
@@ -525,7 +508,14 @@ private struct ModItemRow: View {
                     get: { store.isOn(itemID: item.id) },
                     set: { value in
                         UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                        Task { await store.setEnabled(value, item: item) }
+                        Task {
+                            await store.setEnabled(value, item: item)
+                            
+                            // TỰ ĐỘNG HIỆN POPUP KHI BẬT THÀNH CÔNG VÀ CÓ HDSD
+                            if value && hasGuide && store.lastError == nil {
+                                showDetailSheet = true
+                            }
+                        }
                     }
                 ))
                 .labelsHidden()
@@ -550,7 +540,7 @@ private struct ModItemRow: View {
         )
         .shadow(color: isOn ? .cyan.opacity(0.25) : .black.opacity(0.3), radius: 12, y: 5)
         .opacity(hasLink ? 1 : 0.6)
-        // BẬT POPUP HDSD
+        // BẬT POPUP HDSD TỰ ĐỘNG
         .sheet(isPresented: $showDetailSheet) {
             ModDetailSheet(item: item)
         }
@@ -664,7 +654,9 @@ struct ModDetailSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Đóng") { dismiss() }.foregroundColor(.cyan)
+                    Button("Đóng") { dismiss() }
+                        .foregroundColor(.cyan)
+                        .font(.headline.bold())
                 }
             }
         }
