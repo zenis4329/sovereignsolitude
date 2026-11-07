@@ -117,19 +117,20 @@ enum GameCatalogItemService {
         }
     }
 
-    // MARK: - Tải & cache file .3105 (ĐÃ SỬA AUTH)
+    // MARK: - Tải & cache file .3105 (ĐÃ SỬA AUTH VÀ COMMENT ANTI-DEBUG)
     //
     // - rawURL: URL gốc `sovereignsolitude.php?file=xxx.3105` (KHÔNG có token)
     // - Cache key: rawURL — token đổi 30s vẫn hit cache
     // - Download: dùng URL đã ký auth (query string)
     static func ensureLocalPackage(itemID: String, rawURL: String) async throws -> URL {
-        // Bảo mật môi trường
-        if SecureNetworkManager.shared.isProxyEnabled() || AntiDebug.isDebuggerAttached() {
-            throw NSError(
-                domain: "Security", code: -999,
-                userInfo: [NSLocalizedDescriptionKey: "Phát hiện Proxy/Debug! Hủy tải file."]
-            )
-        }
+        // --- TẠM THỜI COMMENT ĐOẠN NÀY ĐỂ TEST TRÊN XCODE ---
+        // if SecureNetworkManager.shared.isProxyEnabled() || AntiDebug.isDebuggerAttached() {
+        //     throw NSError(
+        //         domain: "Security", code: -999,
+        //         userInfo: [NSLocalizedDescriptionKey: "Phát hiện Proxy/Debug! Hủy tải file."]
+        //     )
+        // }
+        // ----------------------------------------------------
 
         let localURL = try localPackageURL(itemID: itemID)
         let sourceURL = localURL.appendingPathExtension("source")
