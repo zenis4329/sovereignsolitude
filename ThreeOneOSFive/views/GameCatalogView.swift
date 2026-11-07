@@ -294,11 +294,14 @@ private struct GameDetailView: View {
 
     private var catalog: GameCatalog { store.catalog }
     private var game: GameCatalogGame? { catalog.games.first(where: { $0.id == gameID }) }
+    
+    // ĐÃ XÓA BỘ LỌC `store.isCatalogItemVisible($0)` ĐỂ LUÔN HIỂN THỊ MOD
     private var items: [GameCatalogItem] {
         (game?.items ?? [])
-            .filter { $0.category.rawValue == selectedTabID && store.isCatalogItemVisible($0) }
+            .filter { $0.category.rawValue == selectedTabID }
             .sorted { ($0.order ?? Int.max) < ($1.order ?? Int.max) }
     }
+    
     private var availableTabs: [GameCatalogTab] {
         let fallbackTabs: [GameCatalogTab] = catalog.resolvedTabs
         guard let game else { return fallbackTabs }
