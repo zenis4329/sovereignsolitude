@@ -966,7 +966,7 @@ extension Color {
             .sRGB,
             red: Double(r) / 255,
             green: Double(g) / 255,
-            blue:  Double(b) / 255,
+            blue: Double(b) / 255,
             opacity: Double(a) / 255
         )
     }
@@ -1001,8 +1001,8 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
     private var lastSuccessfulServerCheck: Date? = nil
     private var monitorTimer: Timer?
     
-    private let heartbeatInterval: TimeInterval = 15.0      // Quét server mỗi 15 giây
-    private let maxOfflineGracePeriod: TimeInterval = 45.0  // Tắt mạng treo app quá 45s sẽ tự khóa & kích
+    private let heartbeatInterval: TimeInterval = 15.0       // Quét server mỗi 15 giây
+    private let maxOfflineGracePeriod: TimeInterval = 45.0   // Tắt mạng treo app quá 45s sẽ tự khóa & kích
     
     private var secretKey: String {
         let bytes: [UInt8] = [72, 111, 97, 110, 103, 113, 117, 121, 100, 122, 118, 108]
@@ -1011,7 +1011,7 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
     
     private var authURL: URL {
         let p1 = "https://zenisiosvn.io.vn/"
-        let p2 = "sovereignsolitude/ipa/"
+        let p2 = "sovereignsolitude/sovereign/"
         let p3 = "ZenisAuth.php"
         return URL(string: p1 + p2 + p3)!
     }
