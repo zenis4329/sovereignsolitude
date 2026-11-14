@@ -1,19 +1,30 @@
 import SwiftUI
 import UIKit
 
-// MARK: - MỞ RỘNG TỰ ĐỘNG TẮT TOÀN BỘ CHỨC NĂNG KHI HẾT KEY / ĐĂNG XUẤT
+// MARK: - MỞ RỘNG TỰ ĐỘNG TẮT TOÀN BỘ CHỨC NĂNG KHI HẾT KEY / ĐĂNG XUẤT / BẢO TRÌ
 extension GameCatalogStore {
+    @MainActor
+    private static var cachedCatalogItems: [String: GameCatalogItem] = [:]
+    
+    @MainActor
+    func rememberCatalogItems() {
+        let allGames = self.catalog.games + self.catalog.orderedGames
+        for game in allGames {
+            for item in game.items {
+                Self.cachedCatalogItems[item.id] = item
+            }
+        }
+    }
+    
     func disableAllEnabledMods() {
         Task { @MainActor in
+            self.rememberCatalogItems()
+            
             let turnOffPass = {
-                var seenIDs = Set<String>()
-                let allGames = self.catalog.games + self.catalog.orderedGames
-                for game in allGames {
-                    for item in game.items where !seenIDs.contains(item.id) {
-                        seenIDs.insert(item.id)
-                        if self.isOn(itemID: item.id) {
-                            await self.setEnabled(false, item: item)
-                        }
+                self.rememberCatalogItems()
+                for item in Self.cachedCatalogItems.values {
+                    if self.isOn(itemID: item.id) {
+                        await self.setEnabled(false, item: item)
                     }
                 }
             }
@@ -21,7 +32,7 @@ extension GameCatalogStore {
             // Lượt 1: Tắt ngay lập tức tất cả mod đang bật
             await turnOffPass()
             
-            // Lượt 2: Quét lại sau 0.6s phòng trường hợp mod đang tải dở đúng lúc hết key
+            // Lượt 2: Quét lại sau 0.6s phòng trường hợp mod đang tải dở đúng lúc hết key / bật bảo trì
             try? await Task.sleep(nanoseconds: 600_000_000)
             await turnOffPass()
             
@@ -88,7 +99,9 @@ struct GameCatalogView: View {
     @State private var isRotating = false
     
     private var isSessionActive: Bool {
-        authManager.isAuthorized && !authManager.isInteractionLocked
+        authManager.isAuthorized
+        && !authManager.isInteractionLocked
+        && !store.catalog.resolvedMaintenanceEnabled
     }
     
     var body: some View {
@@ -259,16 +272,26 @@ struct GameCatalogView: View {
             }
             .toolbar(.hidden, for: .navigationBar)
             .onAppear {
+                store.rememberCatalogItems()
                 if SecureNetworkManager.shared.isProxyEnabled() || AntiDebug.isDebuggerAttached() {
                     store.disableAllEnabledMods()
                     exit(0)
                 }
-                if !authManager.isAuthorized {
+                if !authManager.isAuthorized || store.catalog.resolvedMaintenanceEnabled {
                     store.disableAllEnabledMods()
                 }
             }
+            .onChange(of: store.catalog.games.count) { _ in
+                store.rememberCatalogItems()
+            }
             .onChange(of: authManager.isAuthorized) { authorized in
                 if !authorized {
+                    isTabBarHidden = false
+                    store.disableAllEnabledMods()
+                }
+            }
+            .onChange(of: store.catalog.resolvedMaintenanceEnabled) { isMaintenance in
+                if isMaintenance {
                     isTabBarHidden = false
                     store.disableAllEnabledMods()
                 }
@@ -350,7 +373,9 @@ private struct GameDetailView: View {
     private var game: GameCatalogGame? { catalog.games.first(where: { $0.id == gameID }) }
     
     private var isSessionActive: Bool {
-        authManager.isAuthorized && !authManager.isInteractionLocked
+        authManager.isAuthorized
+        && !authManager.isInteractionLocked
+        && !store.catalog.resolvedMaintenanceEnabled
     }
     
     private var items: [GameCatalogItem] {
@@ -483,6 +508,13 @@ private struct GameDetailView: View {
         .allowsHitTesting(isSessionActive)
         .navigationBarHidden(true)
         .onAppear {
+            store.rememberCatalogItems()
+            if store.catalog.resolvedMaintenanceEnabled {
+                store.disableAllEnabledMods()
+                withAnimation { isTabBarHidden = false }
+                dismiss()
+                return
+            }
             withAnimation { isTabBarHidden = true }
             if !availableTabs.contains(where: { $0.id == selectedTabID }) {
                 selectedTabID = availableTabs.first?.id ?? "aim"
@@ -493,6 +525,13 @@ private struct GameDetailView: View {
         }
         .onChange(of: authManager.isAuthorized) { authorized in
             if !authorized {
+                store.disableAllEnabledMods()
+                withAnimation { isTabBarHidden = false }
+                dismiss()
+            }
+        }
+        .onChange(of: store.catalog.resolvedMaintenanceEnabled) { isMaintenance in
+            if isMaintenance {
                 store.disableAllEnabledMods()
                 withAnimation { isTabBarHidden = false }
                 dismiss()
@@ -511,7 +550,9 @@ private struct ModItemRow: View {
     @State private var errorMessage = ""
     
     private var isSessionActive: Bool {
-        authManager.isAuthorized && !authManager.isInteractionLocked
+        authManager.isAuthorized
+        && !authManager.isInteractionLocked
+        && !store.catalog.resolvedMaintenanceEnabled
     }
     
     private var isVip: Bool {
@@ -590,7 +631,7 @@ private struct ModItemRow: View {
                 Toggle("", isOn: Binding(
                     get: { store.isOn(itemID: item.id) },
                     set: { value in
-                        // Chặn bật mod nếu key đã hết hạn hoặc đang bị khóa tương tác
+                        // Chặn bật mod nếu key hết hạn, bị khóa tương tác hoặc đang bảo trì
                         guard isSessionActive else {
                             if value {
                                 Task { await store.setEnabled(false, item: item) }
@@ -602,8 +643,8 @@ private struct ModItemRow: View {
                         Task {
                             await store.setEnabled(value, item: item)
                             
-                            // Kiểm tra lại lần nữa sau khi bật xong: nếu đúng lúc đó vừa hết key thì tắt ngay
-                            if !authManager.isAuthorized || authManager.isInteractionLocked {
+                            // Kiểm tra lại lần nữa sau khi bật xong: nếu đúng lúc đó vừa hết key hoặc bật bảo trì thì tắt ngay
+                            if !authManager.isAuthorized || authManager.isInteractionLocked || store.catalog.resolvedMaintenanceEnabled {
                                 await store.setEnabled(false, item: item)
                                 return
                             }
@@ -660,6 +701,7 @@ private struct ModItemRow: View {
 struct ModDetailSheet: View {
     let item: GameCatalogItem
     @Environment(\.dismiss) private var dismiss
+    @StateObject private var store = GameCatalogStore.shared
     @StateObject private var authManager = CustomAuthManager.shared
     @State private var copied = false
     
@@ -771,6 +813,9 @@ struct ModDetailSheet: View {
             }
             .onChange(of: authManager.isAuthorized) { authorized in
                 if !authorized { dismiss() }
+            }
+            .onChange(of: store.catalog.resolvedMaintenanceEnabled) { isMaintenance in
+                if isMaintenance { dismiss() }
             }
         }
     }
