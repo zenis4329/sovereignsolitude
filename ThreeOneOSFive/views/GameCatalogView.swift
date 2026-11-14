@@ -1,6 +1,37 @@
 import SwiftUI
 import UIKit
 
+// MARK: - MỞ RỘNG TỰ ĐỘNG TẮT TOÀN BỘ CHỨC NĂNG KHI HẾT KEY / ĐĂNG XUẤT
+extension GameCatalogStore {
+    func disableAllEnabledMods() {
+        Task { @MainActor in
+            let turnOffPass = {
+                var seenIDs = Set<String>()
+                let allGames = self.catalog.games + self.catalog.orderedGames
+                for game in allGames {
+                    for item in game.items where !seenIDs.contains(item.id) {
+                        seenIDs.insert(item.id)
+                        if self.isOn(itemID: item.id) {
+                            await self.setEnabled(false, item: item)
+                        }
+                    }
+                }
+            }
+            
+            // Lượt 1: Tắt ngay lập tức tất cả mod đang bật
+            await turnOffPass()
+            
+            // Lượt 2: Quét lại sau 0.6s phòng trường hợp mod đang tải dở đúng lúc hết key
+            try? await Task.sleep(nanoseconds: 600_000_000)
+            await turnOffPass()
+            
+            // Lượt 3: Quét chốt sau 1.5s đảm bảo 100% chức năng đã gỡ sạch
+            try? await Task.sleep(nanoseconds: 900_000_000)
+            await turnOffPass()
+        }
+    }
+}
+
 // MARK: - BỘ TẢI ẢNH (Có hiệu ứng Fade-in)
 struct SecureCatalogImage: View {
     let urlString: String
@@ -55,6 +86,10 @@ struct GameCatalogView: View {
     @Binding var isTabBarHidden: Bool
     
     @State private var isRotating = false
+    
+    private var isSessionActive: Bool {
+        authManager.isAuthorized && !authManager.isInteractionLocked
+    }
     
     var body: some View {
         NavigationStack {
@@ -208,7 +243,9 @@ struct GameCatalogView: View {
                                     .shadow(color: .cyan.opacity(0.15), radius: 5)
                                 }
                                 .buttonStyle(ScaleButtonStyle())
+                                .disabled(!isSessionActive)
                                 .simultaneousGesture(TapGesture().onEnded {
+                                    guard isSessionActive else { return }
                                     withAnimation { isTabBarHidden = true }
                                 })
                                 .padding(.horizontal, 20)
@@ -217,12 +254,23 @@ struct GameCatalogView: View {
                         .padding(.bottom, 120)
                     }
                 }
+                .disabled(!isSessionActive)
+                .allowsHitTesting(isSessionActive)
             }
             .toolbar(.hidden, for: .navigationBar)
             .onAppear {
-                // BẢO MẬT ĐÃ FIX LỖI: Dùng kiểm tra trực tiếp thay vì hàm không tồn tại
                 if SecureNetworkManager.shared.isProxyEnabled() || AntiDebug.isDebuggerAttached() {
+                    store.disableAllEnabledMods()
                     exit(0)
+                }
+                if !authManager.isAuthorized {
+                    store.disableAllEnabledMods()
+                }
+            }
+            .onChange(of: authManager.isAuthorized) { authorized in
+                if !authorized {
+                    isTabBarHidden = false
+                    store.disableAllEnabledMods()
                 }
             }
         }
@@ -301,7 +349,10 @@ private struct GameDetailView: View {
     private var catalog: GameCatalog { store.catalog }
     private var game: GameCatalogGame? { catalog.games.first(where: { $0.id == gameID }) }
     
-    // ĐÃ XÓA BỘ LỌC isCatalogItemVisible ĐỂ LUÔN HIỂN THỊ MOD DÙ FILE LỖI
+    private var isSessionActive: Bool {
+        authManager.isAuthorized && !authManager.isInteractionLocked
+    }
+    
     private var items: [GameCatalogItem] {
         (game?.items ?? [])
             .filter { $0.category.rawValue == selectedTabID }
@@ -407,6 +458,7 @@ private struct GameDetailView: View {
             VStack {
                 Spacer()
                 Button {
+                    guard isSessionActive else { return }
                     if let url = URL(string: game?.launchURL ?? "") { UIApplication.shared.open(url) }
                     UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
                 } label: {
@@ -427,6 +479,8 @@ private struct GameDetailView: View {
                 .padding(.bottom, 30)
             }
         }
+        .disabled(!isSessionActive)
+        .allowsHitTesting(isSessionActive)
         .navigationBarHidden(true)
         .onAppear {
             withAnimation { isTabBarHidden = true }
@@ -437,6 +491,13 @@ private struct GameDetailView: View {
         .onDisappear {
             withAnimation { isTabBarHidden = false }
         }
+        .onChange(of: authManager.isAuthorized) { authorized in
+            if !authorized {
+                store.disableAllEnabledMods()
+                withAnimation { isTabBarHidden = false }
+                dismiss()
+            }
+        }
     }
 }
 
@@ -444,10 +505,14 @@ private struct GameDetailView: View {
 private struct ModItemRow: View {
     let item: GameCatalogItem
     @StateObject private var store = GameCatalogStore.shared
-    @StateObject private var authManager = CustomAuthManager.shared // Lấy Avatar từ đây
+    @StateObject private var authManager = CustomAuthManager.shared
     @State private var showDetailSheet = false
     @State private var showErrorAlert = false
     @State private var errorMessage = ""
+    
+    private var isSessionActive: Bool {
+        authManager.isAuthorized && !authManager.isInteractionLocked
+    }
     
     private var isVip: Bool {
         item.name.localizedCaseInsensitiveContains("VIP")
@@ -476,13 +541,11 @@ private struct ModItemRow: View {
                     )
                     .shadow(color: isOn ? .cyan.opacity(0.6) : .clear, radius: 8)
                 
-                // FIX LỖI: publicAvatarURL là String không phải String?, nên dùng isEmpty trực tiếp
                 if !authManager.publicAvatarURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     SecureCatalogImage(urlString: authManager.publicAvatarURL, placeholder: Image(systemName: isOn ? "shield.fill" : "shield"))
                         .frame(width: 56, height: 56)
                         .clipShape(Circle())
                 } else {
-                    // Fallback nếu App chưa có avatar
                     Image(systemName: isOn ? "shield.fill" : "shield")
                         .foregroundColor(isOn ? .cyan : .white.opacity(0.5))
                         .font(.title2)
@@ -527,9 +590,23 @@ private struct ModItemRow: View {
                 Toggle("", isOn: Binding(
                     get: { store.isOn(itemID: item.id) },
                     set: { value in
+                        // Chặn bật mod nếu key đã hết hạn hoặc đang bị khóa tương tác
+                        guard isSessionActive else {
+                            if value {
+                                Task { await store.setEnabled(false, item: item) }
+                            }
+                            return
+                        }
+                        
                         UIImpactFeedbackGenerator(style: .light).impactOccurred()
                         Task {
                             await store.setEnabled(value, item: item)
+                            
+                            // Kiểm tra lại lần nữa sau khi bật xong: nếu đúng lúc đó vừa hết key thì tắt ngay
+                            if !authManager.isAuthorized || authManager.isInteractionLocked {
+                                await store.setEnabled(false, item: item)
+                                return
+                            }
                             
                             if let error = store.lastError {
                                 errorMessage = error
@@ -542,7 +619,7 @@ private struct ModItemRow: View {
                 ))
                 .labelsHidden()
                 .tint(.cyan)
-                .disabled(!hasLink)
+                .disabled(!hasLink || !isSessionActive)
             }
         }
         .padding(16)
@@ -562,6 +639,12 @@ private struct ModItemRow: View {
         )
         .shadow(color: isOn ? .cyan.opacity(0.25) : .black.opacity(0.3), radius: 12, y: 5)
         .opacity(hasLink ? 1 : 0.6)
+        .onChange(of: isSessionActive) { active in
+            if !active {
+                showDetailSheet = false
+                showErrorAlert = false
+            }
+        }
         .sheet(isPresented: $showDetailSheet) {
             ModDetailSheet(item: item)
         }
@@ -577,6 +660,7 @@ private struct ModItemRow: View {
 struct ModDetailSheet: View {
     let item: GameCatalogItem
     @Environment(\.dismiss) private var dismiss
+    @StateObject private var authManager = CustomAuthManager.shared
     @State private var copied = false
     
     private var isYouTubeLink: Bool {
@@ -684,6 +768,9 @@ struct ModDetailSheet: View {
                         .foregroundColor(.cyan)
                         .font(.headline.bold())
                 }
+            }
+            .onChange(of: authManager.isAuthorized) { authorized in
+                if !authorized { dismiss() }
             }
         }
     }
