@@ -169,6 +169,8 @@ struct ThreeOneOSFiveApp: App {
     @State private var protectedContentStarted = false
     @State private var noticeDismissedUntilNextEnter = false
     @State private var showAttribution = false
+    @State private var isRefreshingCatalog = false
+    @State private var catalogSyncTick = 0
     @Environment(\.scenePhase) private var scenePhase
     
     // TRẠNG THÁI BẢO MẬT
@@ -222,11 +224,14 @@ struct ThreeOneOSFiveApp: App {
     }
 
     private func refreshRemoteContent(presentNotice: Bool) {
-        Task {
+        guard !isRefreshingCatalog else { return }
+        isRefreshingCatalog = true
+        Task { @MainActor in
+            defer { isRefreshingCatalog = false }
             let connected = await GameCatalogStore.shared.refresh(prefetch: true)
             guard connected else { return }
             guard presentNotice else { return }
-            await MainActor.run { evaluateNoticePresentation() }
+            evaluateNoticePresentation()
         }
     }
 
@@ -262,7 +267,7 @@ struct ThreeOneOSFiveApp: App {
                 catalog: GameCatalogStore.shared.catalog
             ) { _, _ in }
             await MainActor.run {
-                if authManager.isAuthorized && !authManager.isInteractionLocked {
+                if authManager.isAuthorized && !authManager.isInteractionLocked && !gameCatalog.catalog.resolvedMaintenanceEnabled {
                     AmbientMediaController.shared.setPlaybackAllowed(true)
                 }
             }
@@ -381,8 +386,20 @@ struct ThreeOneOSFiveApp: App {
                 if !authorized {
                     showAttribution = false
                     protectedContentStarted = false
+                    catalogSyncTick = 0
                     AmbientMediaController.shared.setPlaybackAllowed(false)
                 }
+            }
+            .onChange(of: gameCatalog.catalog.resolvedMaintenanceEnabled) { isMaintenance in
+                if isMaintenance {
+                    showAttribution = false
+                    AmbientMediaController.shared.setPlaybackAllowed(false)
+                } else if authManager.isAuthorized && !authManager.isInteractionLocked {
+                    AmbientMediaController.shared.setPlaybackAllowed(true)
+                }
+            }
+            .onChange(of: gameCatalog.catalog.noticeMessage) { _ in
+                evaluateNoticePresentation()
             }
             .onReceive(securityTimer) { _ in
                 // 1. QUÉT BẢO MẬT MỖI 1 GIÂY
@@ -396,9 +413,18 @@ struct ThreeOneOSFiveApp: App {
                     }
                 }
                 
-                // 2. KIỂM TRA KEY LIÊN TỤC (LOCAL MỖI 1S + HEARTBEAT SERVER MỖI 15S)
+                // 2. KIỂM TRA KEY & ĐỒNG BỘ BẢO TRÌ / GÓI AIM LIÊN TỤC
                 if authManager.isAuthorized {
                     authManager.performContinuousCheck()
+                    
+                    // Đồng bộ catalog (bảo trì, gói aim, thông báo, cập nhật) mỗi 5 giây
+                    catalogSyncTick += 1
+                    if catalogSyncTick >= 5 {
+                        catalogSyncTick = 0
+                        refreshRemoteContent(presentNotice: !showOnboarding)
+                    }
+                } else {
+                    catalogSyncTick = 0
                 }
             }
             .onChange(of: scenePhase) { newPhase in
@@ -422,6 +448,7 @@ struct ThreeOneOSFiveApp: App {
                 // KHÓA TẠM THỜI & ÉP KIỂM TRA KEY NGAY LẬP TỨC KHI MỞ LẠI APP TỪ NỀN
                 authManager.verifyOnAppResume()
                 
+                catalogSyncTick = 0
                 refreshRemoteContent(presentNotice: !showOnboarding)
                 if !showOnboarding { appState.detectSupport() }
             }
@@ -972,7 +999,7 @@ extension Color {
     }
 }
 
-// MARK: - CUSTOM AUTH MANAGER (KIỂM TRA KEY LIÊN TỤC & KHÓA CHẠM TỨC THÌ)
+// MARK: - CUSTOM AUTH MANAGER (KIỂM TRA KEY LIÊN TỤC & ĐỒNG BỘ BẢO TRÌ / AIM TỨC THÌ)
 class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
     static let shared = CustomAuthManager()
     
@@ -993,6 +1020,7 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
     
     private var isFetchingConfig = false
     private var isVerifyingHeartbeat = false
+    private var isSyncingCatalogFromHeartbeat = false
     
     // Quản lý thời hạn chính xác chống đổi giờ máy & chống treo app
     private var parsedExpirationDate: Date? = nil
@@ -1001,7 +1029,7 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
     private var lastSuccessfulServerCheck: Date? = nil
     private var monitorTimer: Timer?
     
-    private let heartbeatInterval: TimeInterval = 15.0       // Quét server mỗi 15 giây
+    private let heartbeatInterval: TimeInterval = 5.0        // Quét server mỗi 5 giây để cập nhật bảo trì & gói Aim tức thì
     private let maxOfflineGracePeriod: TimeInterval = 45.0   // Tắt mạng treo app quá 45s sẽ tự khóa & kích
     
     private var secretKey: String {
@@ -1068,7 +1096,7 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
         }
     }
     
-    // MARK: - GIÁM SÁT KEY LIÊN TỤC (CHỐNG TREO APP)
+    // MARK: - GIÁM SÁT KEY & ĐỒNG BỘ SERVER LIÊN TỤC
     
     private func startContinuousMonitoring() {
         stopContinuousMonitoring()
@@ -1084,7 +1112,7 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
         monitorTimer = nil
     }
     
-    /// Gọi mỗi 1 giây để kiểm tra hết hạn local + gọi server định kỳ
+    /// Gọi mỗi 1 giây để kiểm tra hết hạn local + gọi server định kỳ mỗi 5 giây
     func performContinuousCheck() {
         guard isAuthorized else { return }
         
@@ -1106,7 +1134,7 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
             return
         }
         
-        // 4. Gửi Heartbeat kiểm tra key trực tiếp trên server mỗi 15 giây
+        // 4. Gửi Heartbeat kiểm tra key + trạng thái bảo trì + gói Aim mới mỗi 5 giây
         if Date().timeIntervalSince(lastHeartbeatAttempt) >= heartbeatInterval {
             heartbeatVerify(unlockAfterSuccess: false)
         }
@@ -1144,7 +1172,7 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
         return false
     }
     
-    /// Xác thực ngầm định kỳ với server để phát hiện key hết hạn / bị thu hồi / vượt thiết bị
+    /// Xác thực ngầm định kỳ với server để phát hiện key hết hạn / bảo trì / cập nhật gói Aim mới
     private func heartbeatVerify(force: Bool = false, unlockAfterSuccess: Bool = false) {
         if isVerifyingHeartbeat && !force { return }
         let activeKey = savedKey.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1222,6 +1250,19 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
                     self.maxDevices = "\(authInfo["max_devices"] as? Int ?? 1)"
                     self.parsedExpirationDate = self.parseExpirationDate(from: rawExpire, authInfo: authInfo)
                     self.lastSuccessfulServerCheck = Date()
+                    
+                    // Cập nhật ngay trạng thái bảo trì, thông báo, force update & danh sách gói Aim mới nhất
+                    if let catalogData = try? JSONSerialization.data(withJSONObject: resDict),
+                       let decodedCatalog = try? JSONDecoder().decode(GameCatalog.self, from: catalogData) {
+                        GameCatalogStore.shared.catalog = decodedCatalog
+                        if !self.isSyncingCatalogFromHeartbeat {
+                            self.isSyncingCatalogFromHeartbeat = true
+                            Task { @MainActor in
+                                defer { self.isSyncingCatalogFromHeartbeat = false }
+                                _ = await GameCatalogStore.shared.refresh(prefetch: true)
+                            }
+                        }
+                    }
                     
                     // Nếu server trả thành công nhưng mốc expires_at đã qua -> Kích ngay
                     if self.checkLocalExpiration() {
@@ -1397,7 +1438,7 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
                             GameCatalogStore.shared.catalog = decodedCatalog
                         }
                         
-                        // Bắt đầu bộ đếm giám sát key liên tục
+                        // Bắt đầu bộ đếm giám sát key & đồng bộ server liên tục
                         self.startContinuousMonitoring()
                     } else {
                         self.errorMessage = resDict["message"] as? String ?? "Key không hợp lệ hoặc đã hết hạn"
