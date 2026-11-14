@@ -165,7 +165,7 @@ struct ThreeOneOSFiveApp: App {
     
     @State private var showOnboarding = OnboardingStore.shouldShow()
     @State private var showNotice = false
-    @State private var isInitialLoading = false 
+    @State private var isInitialLoading = false
     @State private var protectedContentStarted = false
     @State private var noticeDismissedUntilNextEnter = false
     @State private var showAttribution = false
@@ -211,6 +211,15 @@ struct ThreeOneOSFiveApp: App {
     private var language: AppLanguage { AppLanguage(rawValue: languageCode) ?? .vietnamese }
     private var preferredScheme: ColorScheme? { (AppAppearanceMode(rawValue: appearanceRaw) ?? .system).colorScheme }
     private var accentColor: Color { (AppAccentSpectrum(rawValue: accentRaw) ?? .azure).color }
+    
+    /// Chỉ cho phép chạm/bấm nút khi key hợp lệ, không bị khóa tạm thời và không có popup chặn
+    private var canInteractWithContent: Bool {
+        authManager.isAuthorized
+        && !authManager.isInteractionLocked
+        && !showOnboarding
+        && !showNotice
+        && !gameCatalog.catalog.resolvedMaintenanceEnabled
+    }
 
     private func refreshRemoteContent(presentNotice: Bool) {
         Task {
@@ -237,6 +246,7 @@ struct ThreeOneOSFiveApp: App {
     }
 
     private func startProtectedContentIfNeeded() {
+        guard authManager.isAuthorized, !authManager.isInteractionLocked else { return }
         guard !protectedContentStarted else { return }
         protectedContentStarted = true
         loadInitialContent()
@@ -252,7 +262,9 @@ struct ThreeOneOSFiveApp: App {
                 catalog: GameCatalogStore.shared.catalog
             ) { _, _ in }
             await MainActor.run {
-                AmbientMediaController.shared.setPlaybackAllowed(true)
+                if authManager.isAuthorized && !authManager.isInteractionLocked {
+                    AmbientMediaController.shared.setPlaybackAllowed(true)
+                }
             }
             await GameCatalogStore.shared.prefetchPackages()
         }
@@ -297,8 +309,18 @@ struct ThreeOneOSFiveApp: App {
                             .preferredColorScheme(preferredScheme)
                             .tint(accentColor)
                             .opacity(showOnboarding ? 0 : 1)
-                            .allowsHitTesting(!showOnboarding && !showNotice && !gameCatalog.catalog.resolvedMaintenanceEnabled)
+                            .disabled(!canInteractWithContent)
+                            .allowsHitTesting(canInteractWithContent)
                             .onAppear { startProtectedContentIfNeeded() }
+
+                        // LỚP KHÓA CHẶN CHẠM TỨC THÌ KHI KEY HẾT HẠN / ĐANG XÁC THỰC LẠI
+                        if authManager.isInteractionLocked {
+                            Color.black.opacity(0.4)
+                                .ignoresSafeArea()
+                                .contentShape(Rectangle())
+                                .onTapGesture { }
+                                .zIndex(998)
+                        }
 
                         if showOnboarding {
                             OnboardingView { finishLanguageOnboarding() }
@@ -344,15 +366,39 @@ struct ThreeOneOSFiveApp: App {
             }
             .preferredColorScheme(preferredScheme)
             .tint(accentColor)
-            .displayIdentityAttribution(isPresented: $showAttribution, enabled: authManager.isAuthorized && !showOnboarding && !showNotice)
+            .displayIdentityAttribution(
+                isPresented: $showAttribution,
+                enabled: canInteractWithContent
+            )
             .sheet(isPresented: $showAttribution) { DisplayAttributionSheet() }
+            .onChange(of: authManager.isInteractionLocked) { locked in
+                if locked {
+                    showAttribution = false
+                    AmbientMediaController.shared.setPlaybackAllowed(false)
+                }
+            }
+            .onChange(of: authManager.isAuthorized) { authorized in
+                if !authorized {
+                    showAttribution = false
+                    protectedContentStarted = false
+                    AmbientMediaController.shared.setPlaybackAllowed(false)
+                }
+            }
             .onReceive(securityTimer) { _ in
-                // QUÉT BẢO MẬT MỖI 1 GIÂY
+                // 1. QUÉT BẢO MẬT MỖI 1 GIÂY
                 let newStatus = AntiDebug.checkEnvironment()
                 if newStatus != securityStatus {
+                    if newStatus != .safe {
+                        authManager.lockInteractionsImmediately()
+                    }
                     withAnimation {
                         securityStatus = newStatus
                     }
+                }
+                
+                // 2. KIỂM TRA KEY LIÊN TỤC (LOCAL MỖI 1S + HEARTBEAT SERVER MỖI 15S)
+                if authManager.isAuthorized {
+                    authManager.performContinuousCheck()
                 }
             }
             .onChange(of: scenePhase) { newPhase in
@@ -363,10 +409,19 @@ struct ThreeOneOSFiveApp: App {
                 }
                 guard newPhase == .active else { return }
                 
-                // KIỂM TRA NGAY KHI APP ACTIVE
-                securityStatus = AntiDebug.checkEnvironment()
+                // KIỂM TRA BẢO MẬT NGAY KHI APP ACTIVE
+                let currentSec = AntiDebug.checkEnvironment()
+                securityStatus = currentSec
+                if currentSec != .safe {
+                    authManager.lockInteractionsImmediately()
+                    return
+                }
                 
                 guard authManager.isAuthorized else { return }
+                
+                // KHÓA TẠM THỜI & ÉP KIỂM TRA KEY NGAY LẬP TỨC KHI MỞ LẠI APP TỪ NỀN
+                authManager.verifyOnAppResume()
+                
                 refreshRemoteContent(presentNotice: !showOnboarding)
                 if !showOnboarding { appState.detectSupport() }
             }
@@ -524,9 +579,9 @@ struct SecureRemoteImage: View {
     
     private func loadImage(from urlString: String) {
         let cleanUrl = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !cleanUrl.isEmpty, let url = URL(string: cleanUrl) else { 
+        guard !cleanUrl.isEmpty, let url = URL(string: cleanUrl) else {
             if cleanUrl.isEmpty { DispatchQueue.main.async { self.image = nil } }
-            return 
+            return
         }
         
         var request = URLRequest(url: url)
@@ -605,6 +660,7 @@ struct AuthEntryView: View {
     
     @State private var isSplashActive = true
     @State private var loadingProgress: CGFloat = 0.0
+    @State private var splashTimer: Timer?
     
     var body: some View {
         ZStack {
@@ -763,7 +819,7 @@ struct AuthEntryView: View {
                                 Circle().fill(authManager.errorMessage != nil ? Color.red : Color(hex: "#00f2fe")).frame(width: 6, height: 6)
                                 Text(authManager.errorMessage ?? "Trạng thái: Sẵn sàng xác thực...")
                                     .font(.system(size: 12, weight: .medium, design: .monospaced))
-                                    .foregroundColor(.white)
+                                    .foregroundColor(authManager.errorMessage != nil ? Color(hex: "#ff6b6b") : .white)
                                     .shadow(color: .white.opacity(0.5), radius: 3)
                                 Spacer()
                             }
@@ -848,23 +904,37 @@ struct AuthEntryView: View {
             }
         }
         .onAppear {
+            // Đảm bảo màn hình nhập Key luôn mở khóa tương tác
+            authManager.isInteractionLocked = false
             keyInput = authManager.savedKey
             authManager.fetchPublicConfig()
-            runSplashScreen()
+            
+            // Nếu vừa bị kích ra do hết hạn thì bỏ qua splash để hiện form nhập Key ngay lập tức
+            if authManager.wasKickedOut || authManager.errorMessage != nil {
+                isSplashActive = false
+            } else {
+                runSplashScreen()
+            }
+        }
+        .onDisappear {
+            splashTimer?.invalidate()
+            splashTimer = nil
         }
     }
     
     private func runSplashScreen() {
+        splashTimer?.invalidate()
         let totalDuration = 1.5
         let steps = 100
         let timePerStep = totalDuration / Double(steps)
         
-        Timer.scheduledTimer(withTimeInterval: timePerStep, repeats: true) { timer in
+        splashTimer = Timer.scheduledTimer(withTimeInterval: timePerStep, repeats: true) { timer in
             withAnimation(.linear(duration: timePerStep)) {
                 loadingProgress += 0.01
             }
             if loadingProgress >= 1.0 {
                 timer.invalidate()
+                splashTimer = nil
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
                     withAnimation {
                         isSplashActive = false
@@ -902,13 +972,16 @@ extension Color {
     }
 }
 
-// MARK: - CUSTOM AUTH MANAGER
+// MARK: - CUSTOM AUTH MANAGER (KIỂM TRA KEY LIÊN TỤC & KHÓA CHẠM TỨC THÌ)
 class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
     static let shared = CustomAuthManager()
     
     @Published var isAuthorized: Bool = false
+    @Published var isInteractionLocked: Bool = false
+    @Published var wasKickedOut: Bool = false
     @Published var errorMessage: String? = nil
     @Published var isLoading: Bool = false
+    
     @AppStorage("saved_license_key") var savedKey: String = ""
     @AppStorage("license_expire_date") var expireDate: String = "N/A"
     @AppStorage("license_max_devices") var maxDevices: String = "1"
@@ -917,7 +990,19 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
     @Published var publicAvatarURL: String = ""
     @Published var publicBackgroundURL: String = ""
     @Published var publicGetKeyURL: String = ""
+    
     private var isFetchingConfig = false
+    private var isVerifyingHeartbeat = false
+    
+    // Quản lý thời hạn chính xác chống đổi giờ máy & chống treo app
+    private var parsedExpirationDate: Date? = nil
+    private var serverTimeOffset: TimeInterval = 0
+    private var lastHeartbeatAttempt: Date = .distantPast
+    private var lastSuccessfulServerCheck: Date? = nil
+    private var monitorTimer: Timer?
+    
+    private let heartbeatInterval: TimeInterval = 15.0      // Quét server mỗi 15 giây
+    private let maxOfflineGracePeriod: TimeInterval = 45.0  // Tắt mạng treo app quá 45s sẽ tự khóa & kích
     
     private var secretKey: String {
         let bytes: [UInt8] = [72, 111, 97, 110, 103, 113, 117, 121, 100, 122, 118, 108]
@@ -937,7 +1022,7 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
         super.init()
         let config = URLSessionConfiguration.ephemeral
         config.requestCachePolicy = .reloadIgnoringLocalCacheData
-        config.timeoutIntervalForRequest = 25
+        config.timeoutIntervalForRequest = 15
         self.secureSession = URLSession(configuration: config, delegate: self, delegateQueue: nil)
     }
     
@@ -948,6 +1033,213 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
         if let socks = proxySettings["SOCKSProxy"] as? String, !socks.isEmpty { return true }
         return false
     }
+    
+    // MARK: - KHÓA CHẠM & KÍCH KHỎI GIAO DIỆN TỨC THÌ
+    
+    /// Khóa toàn bộ nút chạm bấm ngay lập tức trước khi chuyển view
+    func lockInteractionsImmediately() {
+        DispatchQueue.main.async {
+            self.isInteractionLocked = true
+        }
+    }
+    
+    /// Khóa chạm trước, sau đó kích thẳng về màn hình nhập Key
+    func kickOutToLogin(reason: String) {
+        let applyKickOut = {
+            // 1. Khóa toàn bộ nút bấm ngay lập tức
+            self.isInteractionLocked = true
+            self.stopContinuousMonitoring()
+            
+            // 2. Xóa trạng thái phiên hiện tại & kích về AuthEntryView
+            self.parsedExpirationDate = nil
+            self.lastSuccessfulServerCheck = nil
+            self.wasKickedOut = true
+            self.errorMessage = reason
+            self.isLoading = false
+            self.isAuthorized = false
+            
+            UINotificationFeedbackGenerator().notificationOccurred(.error)
+        }
+        
+        if Thread.isMainThread {
+            applyKickOut()
+        } else {
+            DispatchQueue.main.async(execute: applyKickOut)
+        }
+    }
+    
+    // MARK: - GIÁM SÁT KEY LIÊN TỤC (CHỐNG TREO APP)
+    
+    private func startContinuousMonitoring() {
+        stopContinuousMonitoring()
+        let timer = Timer(timeInterval: 1.0, repeats: true) { [weak self] _ in
+            self?.performContinuousCheck()
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        self.monitorTimer = timer
+    }
+    
+    private func stopContinuousMonitoring() {
+        monitorTimer?.invalidate()
+        monitorTimer = nil
+    }
+    
+    /// Gọi mỗi 1 giây để kiểm tra hết hạn local + gọi server định kỳ
+    func performContinuousCheck() {
+        guard isAuthorized else { return }
+        
+        // 1. Phát hiện Proxy/VPN giữa chừng -> Khóa & kích ngay
+        if isProxyConfigured() {
+            kickOutToLogin(reason: "Phát hiện Proxy/VPN! Phiên truy cập đã bị khóa.")
+            return
+        }
+        
+        // 2. Kiểm tra hết hạn theo giờ chuẩn (chạy offline mỗi 1 giây, không cần chờ mạng)
+        if checkLocalExpiration() {
+            return
+        }
+        
+        // 3. Kiểm tra nếu người dùng cố tình ngắt mạng treo app quá lâu
+        if let lastSuccess = lastSuccessfulServerCheck,
+           Date().timeIntervalSince(lastSuccess) > maxOfflineGracePeriod {
+            kickOutToLogin(reason: "Mất kết nối xác thực máy chủ! Vui lòng kiểm tra mạng.")
+            return
+        }
+        
+        // 4. Gửi Heartbeat kiểm tra key trực tiếp trên server mỗi 15 giây
+        if Date().timeIntervalSince(lastHeartbeatAttempt) >= heartbeatInterval {
+            heartbeatVerify(unlockAfterSuccess: false)
+        }
+    }
+    
+    /// Gọi ngay khi người dùng mở lại app từ đa nhiệm / màn hình khóa
+    func verifyOnAppResume() {
+        guard isAuthorized else { return }
+        
+        // Khóa toàn bộ nút bấm trước khi kiểm tra xong
+        isInteractionLocked = true
+        
+        if isProxyConfigured() {
+            kickOutToLogin(reason: "Phát hiện Proxy/VPN! Phiên truy cập đã bị khóa.")
+            return
+        }
+        
+        if checkLocalExpiration() {
+            return
+        }
+        
+        // Ép kiểm tra ngay lập tức với server rồi mới mở khóa nút bấm
+        heartbeatVerify(force: true, unlockAfterSuccess: true)
+    }
+    
+    /// Trả về `true` nếu key đã hết hạn (và tự động khóa + kích ra)
+    @discardableResult
+    private func checkLocalExpiration() -> Bool {
+        guard let expDate = parsedExpirationDate else { return false }
+        let trustedNow = Date().addingTimeInterval(serverTimeOffset)
+        if trustedNow >= expDate {
+            kickOutToLogin(reason: "Key đã hết hạn! Vui lòng nhập Key mới.")
+            return true
+        }
+        return false
+    }
+    
+    /// Xác thực ngầm định kỳ với server để phát hiện key hết hạn / bị thu hồi / vượt thiết bị
+    private func heartbeatVerify(force: Bool = false, unlockAfterSuccess: Bool = false) {
+        if isVerifyingHeartbeat && !force { return }
+        let activeKey = savedKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !activeKey.isEmpty else {
+            kickOutToLogin(reason: "Không tìm thấy Key xác thực!")
+            return
+        }
+        
+        isVerifyingHeartbeat = true
+        lastHeartbeatAttempt = Date()
+        
+        let timestamp = Int(Date().timeIntervalSince1970)
+        let payloadDict: [String: Any] = [
+            "action": "auth",
+            "key": activeKey,
+            "device_id": AppDeviceIdentity.value,
+            "timestamp": timestamp
+        ]
+        
+        guard let jsonData = try? JSONSerialization.data(withJSONObject: payloadDict),
+              let jsonString = String(data: jsonData, encoding: .utf8),
+              let encryptedBase64 = encryptAES(jsonString, key: secretKey) else {
+            isVerifyingHeartbeat = false
+            kickOutToLogin(reason: "Lỗi xác thực bảo mật!")
+            return
+        }
+        
+        var request = URLRequest(url: authURL)
+        request.httpMethod = "POST"
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        request.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)", forHTTPHeaderField: "User-Agent")
+        
+        let encodedBase64 = encryptedBase64.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? ""
+        request.httpBody = "data=\(encodedBase64)".data(using: .utf8)
+        
+        secureSession.dataTask(with: request) { [weak self] data, response, error in
+            guard let self = self else { return }
+            DispatchQueue.main.async {
+                self.isVerifyingHeartbeat = false
+                guard self.isAuthorized else { return }
+                
+                if let httpResponse = response as? HTTPURLResponse {
+                    self.syncServerClock(from: httpResponse, jsonDict: nil)
+                }
+                
+                // Nếu rớt mạng tạm thời: kiểm tra lại local, nếu quá hạn 45s không có mạng thì kích
+                if error != nil {
+                    if self.checkLocalExpiration() { return }
+                    if let lastSuccess = self.lastSuccessfulServerCheck,
+                       Date().timeIntervalSince(lastSuccess) > self.maxOfflineGracePeriod {
+                        self.kickOutToLogin(reason: "Mất kết nối xác thực máy chủ!")
+                        return
+                    }
+                    if unlockAfterSuccess {
+                        self.isInteractionLocked = false
+                    }
+                    return
+                }
+                
+                guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200,
+                      let data = data, let responseString = String(data: data, encoding: .utf8),
+                      let decryptedString = self.decryptAES(responseString, key: self.secretKey),
+                      let resData = decryptedString.data(using: .utf8),
+                      let resDict = try? JSONSerialization.jsonObject(with: resData) as? [String: Any] else {
+                    self.kickOutToLogin(reason: "Xác thực phiên thất bại! Vui lòng đăng nhập lại.")
+                    return
+                }
+                
+                self.syncServerClock(from: httpResponse, jsonDict: resDict)
+                
+                if let authInfo = resDict["auth_info"] as? [String: Any],
+                   (authInfo["status"] as? String) == "success" {
+                    let rawExpire = authInfo["expires_at"] as? String ?? "N/A"
+                    self.expireDate = rawExpire
+                    self.maxDevices = "\(authInfo["max_devices"] as? Int ?? 1)"
+                    self.parsedExpirationDate = self.parseExpirationDate(from: rawExpire, authInfo: authInfo)
+                    self.lastSuccessfulServerCheck = Date()
+                    
+                    // Nếu server trả thành công nhưng mốc expires_at đã qua -> Kích ngay
+                    if self.checkLocalExpiration() {
+                        return
+                    }
+                    
+                    if unlockAfterSuccess {
+                        self.isInteractionLocked = false
+                    }
+                } else {
+                    let msg = resDict["message"] as? String ?? "Key đã hết hạn hoặc bị thu hồi!"
+                    self.kickOutToLogin(reason: msg)
+                }
+            }
+        }.resume()
+    }
+    
+    // MARK: - API CÔNG KHAI & ĐĂNG NHẬP KEY
     
     func fetchPublicConfig() {
         guard !isFetchingConfig else { return }
@@ -1009,6 +1301,12 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
     }
     
     func authenticate(key: String) {
+        let trimmedKey = key.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedKey.isEmpty else {
+            self.errorMessage = "Vui lòng nhập Key trước khi kích hoạt!"
+            return
+        }
+        
         if isProxyConfigured() {
             self.errorMessage = "Phát hiện Proxy/VPN. Vui lòng tắt để xác thực!"
             return
@@ -1020,7 +1318,7 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
         let timestamp = Int(Date().timeIntervalSince1970)
         let payloadDict: [String: Any] = [
             "action": "auth",
-            "key": key,
+            "key": trimmedKey,
             "device_id": AppDeviceIdentity.value,
             "timestamp": timestamp
         ]
@@ -1043,46 +1341,146 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
         request.httpBody = bodyString.data(using: .utf8)
         
         secureSession.dataTask(with: request) { [weak self] data, response, error in
+            guard let self = self else { return }
             DispatchQueue.main.async {
-                self?.isLoading = false
+                self.isLoading = false
                 
                 if let error = error {
-                    self?.errorMessage = "Lỗi kết nối: \(error.localizedDescription)"
+                    self.errorMessage = "Lỗi kết nối: \(error.localizedDescription)"
                     return
                 }
                 
-                if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode != 200 {
-                    self?.errorMessage = "Server lỗi (HTTP \(httpResponse.statusCode))"
+                guard let httpResponse = response as? HTTPURLResponse else {
+                    self.errorMessage = "Phản hồi máy chủ không hợp lệ"
+                    return
+                }
+                
+                if httpResponse.statusCode != 200 {
+                    self.errorMessage = "Server lỗi (HTTP \(httpResponse.statusCode))"
                     return
                 }
                 
                 guard let data = data, let responseString = String(data: data, encoding: .utf8) else {
-                    self?.errorMessage = "Dữ liệu trả về rỗng"
+                    self.errorMessage = "Dữ liệu trả về rỗng"
                     return
                 }
                 
-                if let decryptedString = self?.decryptAES(responseString, key: self?.secretKey ?? ""),
+                if let decryptedString = self.decryptAES(responseString, key: self.secretKey),
                    let resData = decryptedString.data(using: .utf8),
                    let resDict = try? JSONSerialization.jsonObject(with: resData) as? [String: Any] {
                     
+                    self.syncServerClock(from: httpResponse, jsonDict: resDict)
+                    
                     if let authInfo = resDict["auth_info"] as? [String: Any], (authInfo["status"] as? String) == "success" {
-                        self?.isAuthorized = true
-                        self?.savedKey = key
-                        self?.expireDate = authInfo["expires_at"] as? String ?? "N/A"
-                        self?.maxDevices = "\(authInfo["max_devices"] as? Int ?? 1)"
+                        let rawExpire = authInfo["expires_at"] as? String ?? "N/A"
+                        let expDate = self.parseExpirationDate(from: rawExpire, authInfo: authInfo)
+                        let trustedNow = Date().addingTimeInterval(self.serverTimeOffset)
+                        
+                        // Chặn ngay nếu key đã hết hạn tại thời điểm đăng nhập
+                        if let expDate = expDate, trustedNow >= expDate {
+                            self.errorMessage = "Key đã hết hạn!"
+                            return
+                        }
+                        
+                        self.savedKey = trimmedKey
+                        self.expireDate = rawExpire
+                        self.maxDevices = "\(authInfo["max_devices"] as? Int ?? 1)"
+                        self.parsedExpirationDate = expDate
+                        self.lastSuccessfulServerCheck = Date()
+                        self.lastHeartbeatAttempt = Date()
+                        self.wasKickedOut = false
+                        self.isInteractionLocked = false
+                        self.isAuthorized = true
                         
                         if let catalogData = try? JSONSerialization.data(withJSONObject: resDict),
                            let decodedCatalog = try? JSONDecoder().decode(GameCatalog.self, from: catalogData) {
                             GameCatalogStore.shared.catalog = decodedCatalog
                         }
+                        
+                        // Bắt đầu bộ đếm giám sát key liên tục
+                        self.startContinuousMonitoring()
                     } else {
-                        self?.errorMessage = resDict["message"] as? String ?? "Key không hợp lệ hoặc đã hết hạn"
+                        self.errorMessage = resDict["message"] as? String ?? "Key không hợp lệ hoặc đã hết hạn"
                     }
                 } else {
-                    self?.errorMessage = "Giải mã thất bại! Dữ liệu bị can thiệp."
+                    self.errorMessage = "Giải mã thất bại! Dữ liệu bị can thiệp."
                 }
             }
         }.resume()
+    }
+    
+    // MARK: - ĐỒNG BỘ GIỜ SERVER & PARSE THỜI HẠN
+    
+    private func syncServerClock(from response: HTTPURLResponse, jsonDict: [String: Any]?) {
+        // Ưu tiên timestamp từ JSON nếu server có gửi
+        if let json = jsonDict {
+            if let ts = json["server_time"] as? TimeInterval, ts > 1_000_000_000 {
+                serverTimeOffset = ts - Date().timeIntervalSince1970
+                return
+            }
+            if let tsInt = json["timestamp"] as? Int, tsInt > 1_000_000_000 {
+                serverTimeOffset = TimeInterval(tsInt) - Date().timeIntervalSince1970
+                return
+            }
+        }
+        
+        // Fallback: lấy trực tiếp từ HTTP Date header chuẩn của server
+        if let dateHeader = response.value(forHTTPHeaderField: "Date") {
+            let httpFormatter = DateFormatter()
+            httpFormatter.locale = Locale(identifier: "en_US_POSIX")
+            httpFormatter.timeZone = TimeZone(abbreviation: "GMT")
+            httpFormatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss zzz"
+            if let serverDate = httpFormatter.date(from: dateHeader) {
+                serverTimeOffset = serverDate.timeIntervalSince1970 - Date().timeIntervalSince1970
+            }
+        }
+    }
+    
+    private func parseExpirationDate(from rawString: String, authInfo: [String: Any]) -> Date? {
+        // Nếu server trả số giây còn lại (remaining_seconds / ttl)
+        if let remaining = authInfo["remaining_seconds"] as? TimeInterval {
+            return Date().addingTimeInterval(serverTimeOffset + remaining)
+        }
+        if let expTimestamp = authInfo["expires_timestamp"] as? TimeInterval, expTimestamp > 1_000_000_000 {
+            return Date(timeIntervalSince1970: expTimestamp)
+        }
+        
+        let trimmed = rawString.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lower = trimmed.lowercased()
+        if trimmed.isEmpty || lower == "n/a" || lower.contains("vĩnh viễn") || lower.contains("lifetime") || lower == "never" {
+            return nil
+        }
+        
+        // Nếu expires_at là chuỗi số Unix timestamp
+        if let unixVal = Double(trimmed), unixVal > 1_000_000_000 {
+            let seconds = unixVal > 10_000_000_000 ? unixVal / 1000.0 : unixVal
+            return Date(timeIntervalSince1970: seconds)
+        }
+        
+        let formats = [
+            "yyyy-MM-dd HH:mm:ss",
+            "yyyy-MM-dd'T'HH:mm:ssZ",
+            "yyyy-MM-dd'T'HH:mm:ss.SSSZ",
+            "yyyy-MM-dd'T'HH:mm:ss",
+            "dd/MM/yyyy HH:mm:ss",
+            "dd-MM-yyyy HH:mm:ss",
+            "yyyy/MM/dd HH:mm:ss",
+            "yyyy-MM-dd"
+        ]
+        
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        // Múi giờ chuẩn của PHP server Việt Nam (UTC+7)
+        formatter.timeZone = TimeZone(identifier: "Asia/Ho_Chi_Minh") ?? .current
+        
+        for format in formats {
+            formatter.dateFormat = format
+            if let date = formatter.date(from: trimmed) {
+                return date
+            }
+        }
+        
+        return nil
     }
     
     func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge, completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
