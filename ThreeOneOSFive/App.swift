@@ -230,6 +230,10 @@ struct ThreeOneOSFiveApp: App {
             defer { isRefreshingCatalog = false }
             let connected = await GameCatalogStore.shared.refresh(prefetch: true)
             guard connected else { return }
+            GameCatalogStore.shared.rememberCatalogItems()
+            if GameCatalogStore.shared.catalog.resolvedMaintenanceEnabled {
+                GameCatalogStore.shared.disableAllEnabledMods()
+            }
             guard presentNotice else { return }
             evaluateNoticePresentation()
         }
@@ -254,6 +258,10 @@ struct ThreeOneOSFiveApp: App {
         guard authManager.isAuthorized, !authManager.isInteractionLocked else { return }
         guard !protectedContentStarted else { return }
         protectedContentStarted = true
+        GameCatalogStore.shared.rememberCatalogItems()
+        if gameCatalog.catalog.resolvedMaintenanceEnabled {
+            GameCatalogStore.shared.disableAllEnabledMods()
+        }
         loadInitialContent()
         if !showOnboarding { appState.detectSupport() }
     }
@@ -388,12 +396,14 @@ struct ThreeOneOSFiveApp: App {
                     protectedContentStarted = false
                     catalogSyncTick = 0
                     AmbientMediaController.shared.setPlaybackAllowed(false)
+                    GameCatalogStore.shared.disableAllEnabledMods()
                 }
             }
             .onChange(of: gameCatalog.catalog.resolvedMaintenanceEnabled) { isMaintenance in
                 if isMaintenance {
                     showAttribution = false
                     AmbientMediaController.shared.setPlaybackAllowed(false)
+                    GameCatalogStore.shared.disableAllEnabledMods()
                 } else if authManager.isAuthorized && !authManager.isInteractionLocked {
                     AmbientMediaController.shared.setPlaybackAllowed(true)
                 }
@@ -407,6 +417,7 @@ struct ThreeOneOSFiveApp: App {
                 if newStatus != securityStatus {
                     if newStatus != .safe {
                         authManager.lockInteractionsImmediately()
+                        GameCatalogStore.shared.disableAllEnabledMods()
                     }
                     withAnimation {
                         securityStatus = newStatus
@@ -440,6 +451,7 @@ struct ThreeOneOSFiveApp: App {
                 securityStatus = currentSec
                 if currentSec != .safe {
                     authManager.lockInteractionsImmediately()
+                    GameCatalogStore.shared.disableAllEnabledMods()
                     return
                 }
                 
@@ -1074,9 +1086,10 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
     /// Khóa chạm trước, sau đó kích thẳng về màn hình nhập Key
     func kickOutToLogin(reason: String) {
         let applyKickOut = {
-            // 1. Khóa toàn bộ nút bấm ngay lập tức
+            // 1. Khóa toàn bộ nút bấm & tắt sạch mọi Aim/Mod ngay lập tức
             self.isInteractionLocked = true
             self.stopContinuousMonitoring()
+            GameCatalogStore.shared.disableAllEnabledMods()
             
             // 2. Xóa trạng thái phiên hiện tại & kích về AuthEntryView
             self.parsedExpirationDate = nil
@@ -1255,11 +1268,19 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
                     if let catalogData = try? JSONSerialization.data(withJSONObject: resDict),
                        let decodedCatalog = try? JSONDecoder().decode(GameCatalog.self, from: catalogData) {
                         GameCatalogStore.shared.catalog = decodedCatalog
+                        GameCatalogStore.shared.rememberCatalogItems()
+                        if decodedCatalog.resolvedMaintenanceEnabled {
+                            GameCatalogStore.shared.disableAllEnabledMods()
+                        }
                         if !self.isSyncingCatalogFromHeartbeat {
                             self.isSyncingCatalogFromHeartbeat = true
                             Task { @MainActor in
                                 defer { self.isSyncingCatalogFromHeartbeat = false }
                                 _ = await GameCatalogStore.shared.refresh(prefetch: true)
+                                GameCatalogStore.shared.rememberCatalogItems()
+                                if GameCatalogStore.shared.catalog.resolvedMaintenanceEnabled {
+                                    GameCatalogStore.shared.disableAllEnabledMods()
+                                }
                             }
                         }
                     }
@@ -1436,6 +1457,10 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
                         if let catalogData = try? JSONSerialization.data(withJSONObject: resDict),
                            let decodedCatalog = try? JSONDecoder().decode(GameCatalog.self, from: catalogData) {
                             GameCatalogStore.shared.catalog = decodedCatalog
+                            GameCatalogStore.shared.rememberCatalogItems()
+                            if decodedCatalog.resolvedMaintenanceEnabled {
+                                GameCatalogStore.shared.disableAllEnabledMods()
+                            }
                         }
                         
                         // Bắt đầu bộ đếm giám sát key & đồng bộ server liên tục
