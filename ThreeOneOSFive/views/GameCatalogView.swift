@@ -23,21 +23,19 @@ extension GameCatalogStore {
             let turnOffPass = {
                 self.rememberCatalogItems()
                 for item in Self.cachedCatalogItems.values {
+                    var waitCount = 0
+                    while self.isBusy(itemID: item.id) && waitCount < 20 {
+                        try? await Task.sleep(nanoseconds: 100_000_000)
+                        waitCount += 1
+                    }
                     if self.isOn(itemID: item.id) {
                         await self.setEnabled(false, item: item)
                     }
                 }
             }
             
-            // Lượt 1: Tắt ngay lập tức tất cả mod đang bật
             await turnOffPass()
-            
-            // Lượt 2: Quét lại sau 0.6s phòng trường hợp mod đang tải dở đúng lúc hết key / bật bảo trì
             try? await Task.sleep(nanoseconds: 600_000_000)
-            await turnOffPass()
-            
-            // Lượt 3: Quét chốt sau 1.5s đảm bảo 100% chức năng đã gỡ sạch
-            try? await Task.sleep(nanoseconds: 900_000_000)
             await turnOffPass()
         }
     }
@@ -78,7 +76,7 @@ struct SecureCatalogImage: View {
                 isLoading = false
                 return
             }
-            URLSession.shared.dataTask(with: url) { data, _, _ in
+            SecureNetworkManager.shared.createSecureSession().dataTask(with: url) { data, _, _ in
                 DispatchQueue.main.async {
                     if let data = data, let uiImage = UIImage(data: data) {
                         withAnimation { self.image = uiImage }
@@ -273,10 +271,6 @@ struct GameCatalogView: View {
             .toolbar(.hidden, for: .navigationBar)
             .onAppear {
                 store.rememberCatalogItems()
-                if SecureNetworkManager.shared.isProxyEnabled() || AntiDebug.isDebuggerAttached() {
-                    store.disableAllEnabledMods()
-                    exit(0)
-                }
                 if !authManager.isAuthorized || store.catalog.resolvedMaintenanceEnabled {
                     store.disableAllEnabledMods()
                 }
@@ -631,19 +625,19 @@ private struct ModItemRow: View {
                 Toggle("", isOn: Binding(
                     get: { store.isOn(itemID: item.id) },
                     set: { value in
-                        // Chặn bật mod nếu key hết hạn, bị khóa tương tác hoặc đang bảo trì
-                        guard isSessionActive else {
-                            if value {
-                                Task { await store.setEnabled(false, item: item) }
-                            }
+                        // Luôn cho phép tắt (value == false) để tránh kẹt nút gạt
+                        if !value {
+                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                            Task { await store.setEnabled(false, item: item) }
                             return
                         }
                         
+                        guard isSessionActive else { return }
+                        
                         UIImpactFeedbackGenerator(style: .light).impactOccurred()
                         Task {
-                            await store.setEnabled(value, item: item)
+                            await store.setEnabled(true, item: item)
                             
-                            // Kiểm tra lại lần nữa sau khi bật xong: nếu đúng lúc đó vừa hết key hoặc bật bảo trì thì tắt ngay
                             if !authManager.isAuthorized || authManager.isInteractionLocked || store.catalog.resolvedMaintenanceEnabled {
                                 await store.setEnabled(false, item: item)
                                 return
@@ -652,7 +646,7 @@ private struct ModItemRow: View {
                             if let error = store.lastError {
                                 errorMessage = error
                                 showErrorAlert = true
-                            } else if value && hasGuide {
+                            } else if hasGuide {
                                 showDetailSheet = true
                             }
                         }
@@ -660,7 +654,7 @@ private struct ModItemRow: View {
                 ))
                 .labelsHidden()
                 .tint(.cyan)
-                .disabled(!hasLink || !isSessionActive)
+                .disabled(!hasLink && !isOn)
             }
         }
         .padding(16)
@@ -718,7 +712,7 @@ struct ModDetailSheet: View {
                 ScrollView {
                     VStack(spacing: 20) {
                         // 1. ẢNH
-                        if let imgURL = item.imageURL, !imgURL.trimmingCharacters(in: .whitespaces).isEmpty {
+                        if let imgURL = item.imageURL, !imgURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                             SecureCatalogImage(urlString: imgURL, placeholder: Image(systemName: "photo"))
                                 .frame(maxWidth: .infinity)
                                 .frame(height: 260)
@@ -727,7 +721,7 @@ struct ModDetailSheet: View {
                         }
                         
                         // 2. HDSD
-                        if let guide = item.usageGuide, !guide.trimmingCharacters(in: .whitespaces).isEmpty {
+                        if let guide = item.usageGuide, !guide.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                             VStack(alignment: .leading, spacing: 12) {
                                 HStack {
                                     Image(systemName: "text.book.closed.fill").foregroundColor(.cyan)
