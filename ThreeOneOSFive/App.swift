@@ -1179,7 +1179,7 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
     
     private var authURL: URL {
         let p1 = "https://zenisiosvn.io.vn/"
-        let p2 = "sovereignsolitude/selleripa1/"
+        let p2 = "sovereignsolitude/sovereign/"
         let p3 = "ZenisAuth.php"
         return URL(string: p1 + p2 + p3)!
     }
