@@ -4,9 +4,8 @@ import AudioToolbox
 import Darwin
 import Foundation
 import Security
-import MachO
 
-// MARK: - LƯU TRỮ KEYCHAIN AN TOÀN (CHỐNG ĐỌC TRỘM USERDEFAULTS)
+// MARK: - LƯU TRỮ KEYCHAIN AN TOÀN
 enum KeychainStorage {
     private static let service = Bundle.main.bundleIdentifier ?? "com.zenis.sovereignsolitude"
     
@@ -54,7 +53,7 @@ enum KeychainStorage {
     }
 }
 
-// MARK: - HỆ THỐNG BẢO MẬT & CHỐNG DEBUG TỐI THƯỢNG
+// MARK: - HỆ THỐNG BẢO MẬT & CHỐNG DEBUG
 enum SecurityStatus {
     case safe
     case proxyDetected
@@ -64,13 +63,13 @@ enum SecurityStatus {
 struct AntiDebug {
     
     static func checkEnvironment() -> SecurityStatus {
-        // 1. Kiểm tra Debugger, Jailbreak, Frida, Dylib Hook -> NO CRACK
-        if isDebuggerAttached() || isJailbroken() || isFridaRunning() || hasInjectedDylib() {
+        // 1. Kiểm tra Debugger, Jailbreak, Frida -> NO CRACK
+        if isDebuggerAttached() || isJailbroken() || isFridaRunning() {
             return .crackDetected
         }
         
-        // 2. Kiểm tra Proxy / Tunnel bắt gói tin -> Chặn mạng
-        if isProxyEnabled() || hasSuspiciousNetworkInterface() {
+        // 2. Kiểm tra Proxy -> Chặn mạng
+        if isProxyEnabled() {
             return .proxyDetected
         }
         
@@ -82,40 +81,6 @@ struct AntiDebug {
         if let http = proxySettings["HTTPProxy"] as? String, !http.isEmpty { return true }
         if let https = proxySettings["HTTPSProxy"] as? String, !https.isEmpty { return true }
         if let socks = proxySettings["SOCKSProxy"] as? String, !socks.isEmpty { return true }
-        return false
-    }
-    
-    static func hasSuspiciousNetworkInterface() -> Bool {
-        var ifaddr: UnsafeMutablePointer<ifaddrs>?
-        guard getifaddrs(&ifaddr) == 0, let firstAddr = ifaddr else { return false }
-        defer { freeifaddrs(ifaddr) }
-        
-        var ptr: UnsafeMutablePointer<ifaddrs>? = firstAddr
-        while let current = ptr {
-            let name = String(cString: current.pointee.ifa_name)
-            let flags = Int32(current.pointee.ifa_flags)
-            let isUp = (flags & IFF_UP) == IFF_UP
-            let isRunning = (flags & IFF_RUNNING) == IFF_RUNNING
-            
-            if isUp && isRunning && (name.hasPrefix("ppp") || name.hasPrefix("ipsec") || name.hasPrefix("tap") || name.hasPrefix("tun")) {
-                return true
-            }
-            ptr = current.pointee.ifa_next
-        }
-        return false
-    }
-    
-    static func hasInjectedDylib() -> Bool {
-        let suspiciousKeywords = ["frida", "substrate", "substitute", "libhooker", "cycript", "sslkillswitch", "flex"]
-        let count = _dyld_image_count()
-        for i in 0..<count {
-            if let cName = _dyld_get_image_name(i) {
-                let imageName = String(cString: cName).lowercased()
-                if suspiciousKeywords.contains(where: { imageName.contains($0) }) {
-                    return true
-                }
-            }
-        }
         return false
     }
     
@@ -510,7 +475,6 @@ struct ThreeOneOSFiveApp: App {
                 if authManager.isAuthorized {
                     authManager.performContinuousCheck()
                     
-                    // Đồng bộ catalog (bảo trì, gói aim, thông báo) mỗi 12 giây
                     catalogSyncTick += 1
                     if catalogSyncTick >= 12 {
                         catalogSyncTick = 0
@@ -538,7 +502,6 @@ struct ThreeOneOSFiveApp: App {
                 
                 guard authManager.isAuthorized else { return }
                 
-                // Kiểm tra lại Key nhẹ nhàng khi quay lại app (không khóa cứng nếu Key vẫn còn hạn)
                 authManager.verifyOnAppResume()
                 
                 catalogSyncTick = 0
@@ -649,7 +612,7 @@ class AppState: ObservableObject {
 // MARK: - DELEGATE SSL XÁC MINH CHỨNG CHỈ CHUẨN HỆ THỐNG
 class VerifiedImageSessionDelegate: NSObject, URLSessionDelegate {
     func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge, completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
-        if AntiDebug.isProxyEnabled() || AntiDebug.hasSuspiciousNetworkInterface() {
+        if AntiDebug.isProxyEnabled() {
             completionHandler(.cancelAuthenticationChallenge, nil)
             return
         }
@@ -1079,7 +1042,6 @@ struct AuthEntryView: View {
             if loadingProgress >= 1.0 {
                 timer.invalidate()
                 splashTimer = nil
-                // Nếu auto-login vẫn đang kiểm tra mạng thì đợi xong rồi mới ẩn splash để tránh nháy form nhập Key
                 if !authManager.isLoading {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
                         withAnimation {
@@ -1196,7 +1158,7 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
     }
     
     func isProxyConfigured() -> Bool {
-        return AntiDebug.isProxyEnabled() || AntiDebug.hasSuspiciousNetworkInterface()
+        return AntiDebug.isProxyEnabled()
     }
     
     // MARK: - KHÓA CHẠM & KÍCH KHỎI GIAO DIỆN TỨC THÌ
@@ -1263,7 +1225,7 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
         guard isAuthorized else { return }
         
         if isProxyConfigured() {
-            kickOutToLogin(reason: "Phát hiện Proxy/VPN! Phiên truy cập đã bị khóa.")
+            kickOutToLogin(reason: "Phát hiện Proxy! Phiên truy cập đã bị khóa.")
             return
         }
         
@@ -1280,7 +1242,7 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
         guard isAuthorized else { return }
         
         if isProxyConfigured() {
-            kickOutToLogin(reason: "Phát hiện Proxy/VPN! Phiên truy cập đã bị khóa.")
+            kickOutToLogin(reason: "Phát hiện Proxy! Phiên truy cập đã bị khóa.")
             return
         }
         
@@ -1498,7 +1460,7 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
         
         if isProxyConfigured() {
             if !isAutoLogin {
-                self.errorMessage = "Phát hiện Proxy/VPN. Vui lòng tắt để xác thực!"
+                self.errorMessage = "Phát hiện Proxy. Vui lòng tắt để xác thực!"
             }
             return
         }
@@ -1755,7 +1717,7 @@ class SecureNetworkManager: NSObject, URLSessionDelegate {
     static let shared = SecureNetworkManager()
     
     func isProxyEnabled() -> Bool {
-        return AntiDebug.isProxyEnabled() || AntiDebug.hasSuspiciousNetworkInterface()
+        return AntiDebug.isProxyEnabled()
     }
     
     func createSecureSession() -> URLSession {
