@@ -71,7 +71,9 @@ struct GameCatalogItem: Codable, Identifiable, Hashable {
     var packagePassword: String?
     var enabled: Bool?
     var order: Int?
-    var usageGuide: String? // <--- ĐÃ THÊM DÒNG NÀY
+    var usageGuide: String?
+    var badge: String?
+    var hidden: Bool?
 
     var resolvedPackagePassword: String? {
         let primary = packagePassword?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -79,11 +81,45 @@ struct GameCatalogItem: Codable, Identifiable, Hashable {
         return nil
     }
 
-    private enum CodingKeys: String, CodingKey {
-        case id, name, subtitle, category, imageURL, fileURL, packagePassword, password, enabled, order, usageGuide
+    /// Tách danh sách URL từ `fileURL` (hỗ trợ 1 hoặc 2–4 file .3105 cách nhau bởi dấu phẩy, chấm phẩy hoặc xuống dòng)
+    var resolvedFileURLs: [String] {
+        guard let raw = fileURL else { return [] }
+        let separators = CharacterSet(charactersIn: ",;\n")
+        return raw
+            .components(separatedBy: separators)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
     }
 
-    init(id: String, name: String, subtitle: String? = nil, category: GameItemCategory, imageURL: String? = nil, fileURL: String? = nil, packagePassword: String? = nil, enabled: Bool? = nil, order: Int? = nil, usageGuide: String? = nil) {
+    /// Nhân bản thành các item con tương ứng với từng file để nạp/gỡ đồng loạt
+    func expandedSubItems() -> [GameCatalogItem] {
+        let urls = resolvedFileURLs
+        if urls.count <= 1 {
+            return [self]
+        }
+        return urls.enumerated().map { index, singleURL in
+            GameCatalogItem(
+                id: index == 0 ? self.id : "\(self.id)_part_\(index)",
+                name: self.name,
+                subtitle: self.subtitle,
+                category: self.category,
+                imageURL: self.imageURL,
+                fileURL: singleURL,
+                packagePassword: self.packagePassword,
+                enabled: self.enabled,
+                order: self.order,
+                usageGuide: self.usageGuide,
+                badge: self.badge,
+                hidden: self.hidden
+            )
+        }
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, name, subtitle, category, imageURL, fileURL, packagePassword, password, enabled, order, usageGuide, badge, hidden
+    }
+
+    init(id: String, name: String, subtitle: String? = nil, category: GameItemCategory, imageURL: String? = nil, fileURL: String? = nil, packagePassword: String? = nil, enabled: Bool? = nil, order: Int? = nil, usageGuide: String? = nil, badge: String? = nil, hidden: Bool? = nil) {
         self.id = id
         self.name = name
         self.subtitle = subtitle
@@ -93,7 +129,9 @@ struct GameCatalogItem: Codable, Identifiable, Hashable {
         self.packagePassword = packagePassword
         self.enabled = enabled
         self.order = order
-        self.usageGuide = usageGuide // <--- ĐÃ THÊM
+        self.usageGuide = usageGuide
+        self.badge = badge
+        self.hidden = hidden
     }
 
     init(from decoder: Decoder) throws {
@@ -109,7 +147,9 @@ struct GameCatalogItem: Codable, Identifiable, Hashable {
         packagePassword = (modern?.isEmpty == false ? modern : nil) ?? (legacy?.isEmpty == false ? legacy : nil)
         enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled)
         order = try c.decodeIfPresent(Int.self, forKey: .order)
-        usageGuide = try c.decodeIfPresent(String.self, forKey: .usageGuide) // <--- ĐÃ THÊM
+        usageGuide = try c.decodeIfPresent(String.self, forKey: .usageGuide)
+        badge = try c.decodeIfPresent(String.self, forKey: .badge)
+        hidden = try c.decodeIfPresent(Bool.self, forKey: .hidden)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -123,7 +163,9 @@ struct GameCatalogItem: Codable, Identifiable, Hashable {
         try c.encodeIfPresent(packagePassword, forKey: .packagePassword)
         try c.encodeIfPresent(enabled, forKey: .enabled)
         try c.encodeIfPresent(order, forKey: .order)
-        try c.encodeIfPresent(usageGuide, forKey: .usageGuide) // <--- ĐÃ THÊM
+        try c.encodeIfPresent(usageGuide, forKey: .usageGuide)
+        try c.encodeIfPresent(badge, forKey: .badge)
+        try c.encodeIfPresent(hidden, forKey: .hidden)
     }
 }
 
@@ -264,6 +306,7 @@ final class GameCatalogStore: ObservableObject {
     static let shared = GameCatalogStore()
 
     private let secureSession = SecureNetworkManager.shared.createSecureSession()
+    private static var cachedCatalogItems: [String: GameCatalogItem] = [:]
 
     @Published var catalog = GameCatalog.fallback
     @Published private(set) var isLoading = false
@@ -295,14 +338,45 @@ final class GameCatalogStore: ObservableObject {
         isPrefetching = true
         replacementRuleCounts = [:]
         defer { isPrefetching = false }
-        replacementRuleCounts = await GameCatalogItemService.replacementRuleCounts(from: catalog, progress: progress)
+
+        var expandedCatalog = catalog
+        expandedCatalog.games = catalog.games.map { game in
+            var g = game
+            g.items = game.items
+                .filter { $0.hidden != true }
+                .flatMap { $0.expandedSubItems() }
+            return g
+        }
+
+        let rawCounts = await GameCatalogItemService.replacementRuleCounts(from: expandedCatalog, progress: progress)
+        var aggregatedCounts: [String: Int] = [:]
+        for game in catalog.games {
+            for item in game.items where item.hidden != true {
+                let subs = item.expandedSubItems()
+                let total = subs.compactMap { rawCounts[$0.id] }.reduce(0, +)
+                if subs.contains(where: { rawCounts[$0.id] != nil }) {
+                    aggregatedCounts[item.id] = total
+                }
+            }
+        }
+        replacementRuleCounts = aggregatedCounts
     }
 
     func isOn(itemID: String) -> Bool { appliedItemIDs.contains(itemID) }
     func isBusy(itemID: String) -> Bool { busyItemIDs.contains(itemID) }
     func replacementRuleCount(itemID: String) -> Int? { replacementRuleCounts[itemID] }
-    func isCatalogItemVisible(_ item: GameCatalogItem) -> Bool { replacementRuleCounts[item.id] != nil }
+    func isCatalogItemVisible(_ item: GameCatalogItem) -> Bool {
+        item.hidden != true && replacementRuleCounts[item.id] != nil
+    }
     func visibleItemCount(in game: GameCatalogGame) -> Int { game.items.filter(isCatalogItemVisible).count }
+
+    func isMultiItemOn(item: GameCatalogItem) -> Bool {
+        item.expandedSubItems().contains { appliedItemIDs.contains($0.id) }
+    }
+
+    func isMultiItemBusy(item: GameCatalogItem) -> Bool {
+        item.expandedSubItems().contains { busyItemIDs.contains($0.id) }
+    }
 
     func setEnabled(_ enabled: Bool, item: GameCatalogItem) async {
         guard !busyItemIDs.contains(item.id) else { return }
@@ -325,6 +399,82 @@ final class GameCatalogStore: ObservableObject {
         } catch {
             lastError = error.localizedDescription
             appliedItemIDs = GameCatalogItemService.loadAppliedItemIDs()
+        }
+    }
+
+    /// Bật hoặc tắt đồng loạt 2–4 file trong 1 lần gạt
+    func setMultiEnabled(_ enabled: Bool, item: GameCatalogItem) async {
+        let subItems = item.expandedSubItems()
+        for sub in subItems {
+            Self.cachedCatalogItems[sub.id] = sub
+        }
+
+        if enabled {
+            var activated: [GameCatalogItem] = []
+            for sub in subItems {
+                var waitCount = 0
+                while isBusy(itemID: sub.id) && waitCount < 30 {
+                    try? await Task.sleep(nanoseconds: 100_000_000)
+                    waitCount += 1
+                }
+                if !isOn(itemID: sub.id) {
+                    await setEnabled(true, item: sub)
+                }
+                if let err = lastError, !err.isEmpty {
+                    // Rollback tắt lại các file đã bật trước đó nếu có file lỗi
+                    for prev in activated {
+                        await setEnabled(false, item: prev)
+                    }
+                    return
+                }
+                activated.append(sub)
+            }
+        } else {
+            for sub in subItems {
+                var waitCount = 0
+                while isBusy(itemID: sub.id) && waitCount < 30 {
+                    try? await Task.sleep(nanoseconds: 100_000_000)
+                    waitCount += 1
+                }
+                if isOn(itemID: sub.id) {
+                    await setEnabled(false, item: sub)
+                }
+            }
+        }
+    }
+
+    func rememberCatalogItems() {
+        let allGames = self.catalog.games + self.catalog.orderedGames
+        for game in allGames {
+            for item in game.items {
+                for subItem in item.expandedSubItems() {
+                    Self.cachedCatalogItems[subItem.id] = subItem
+                }
+            }
+        }
+    }
+
+    func disableAllEnabledMods() {
+        Task { @MainActor in
+            self.rememberCatalogItems()
+            
+            let turnOffPass = {
+                self.rememberCatalogItems()
+                for item in Self.cachedCatalogItems.values {
+                    var waitCount = 0
+                    while self.isBusy(itemID: item.id) && waitCount < 20 {
+                        try? await Task.sleep(nanoseconds: 100_000_000)
+                        waitCount += 1
+                    }
+                    if self.isOn(itemID: item.id) {
+                        await self.setEnabled(false, item: item)
+                    }
+                }
+            }
+            
+            await turnOffPass()
+            try? await Task.sleep(nanoseconds: 600_000_000)
+            await turnOffPass()
         }
     }
 }
