@@ -1306,80 +1306,93 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
         request.httpBody = "data=\(encodedBase64)".data(using: .utf8)
         
         secureSession.dataTask(with: request) { [weak self] data, response, error in
-            guard let self = self else { return }
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
-                    self.isVerifyingHeartbeat = false
-                    guard self.isAuthorized else { return }
-                    
-                    if let httpResponse = response as? HTTPURLResponse {
-                        self.syncServerClock(from: httpResponse, jsonDict: nil)
-                    }
-                    
-                    if error != nil || (response as? HTTPURLResponse)?.statusCode != 200 {
-                        self.consecutiveFailures += 1
-                        if self.checkLocalExpiration() { return }
-                        
-                        if let lastSuccess = self.lastSuccessfulServerCheck,
-                           Date().timeIntervalSince(lastSuccess) > self.maxOfflineGracePeriod,
-                           self.consecutiveFailures >= 5 {
-                            self.kickOutToLogin(reason: "Mất kết nối xác thực máy chủ quá lâu! Vui lòng kiểm tra mạng.")
-                        }
-                        return
-                    }
-                    
-                    guard let httpResponse = response as? HTTPURLResponse,
-                          let data = data, let responseString = String(data: data, encoding: .utf8),
-                          let decryptedString = self.decryptAES(responseString, key: self.secretKey),
-                          let resData = decryptedString.data(using: .utf8),
-                          let resDict = try? JSONSerialization.jsonObject(with: resData) as? [String: Any] else {
-                        self.consecutiveFailures += 1
-                        if self.consecutiveFailures >= 5 {
-                            self.kickOutToLogin(reason: "Xác thực phiên thất bại! Vui lòng đăng nhập lại.")
-                        }
-                        return
-                    }
-                    
-                    self.consecutiveFailures = 0
-                    self.syncServerClock(from: httpResponse, jsonDict: resDict)
-                    
-                    if let authInfo = resDict["auth_info"] as? [String: Any],
-                       (authInfo["status"] as? String) == "success" {
-                        let rawExpire = authInfo["expires_at"] as? String ?? "N/A"
-                        self.expireDate = rawExpire
-                        self.maxDevices = "\(authInfo["max_devices"] as? Int ?? 1)"
-                        self.parsedExpirationDate = self.parseExpirationDate(from: rawExpire, authInfo: authInfo)
-                        self.lastSuccessfulServerCheck = Date()
-                        self.isInteractionLocked = false
-                        
-                        if let catalogData = try? JSONSerialization.data(withJSONObject: resDict),
-                           let decodedCatalog = try? JSONDecoder().decode(GameCatalog.self, from: catalogData) {
-                            GameCatalogStore.shared.catalog = decodedCatalog
-                            GameCatalogStore.shared.rememberCatalogItems()
-                            if decodedCatalog.resolvedMaintenanceEnabled {
-                                GameCatalogStore.shared.disableAllEnabledMods()
-                            }
-                            if !self.isSyncingCatalogFromHeartbeat {
-                                self.isSyncingCatalogFromHeartbeat = true
-                                Task { @MainActor in
-                                    defer { self.isSyncingCatalogFromHeartbeat = false }
-                                    _ = await GameCatalogStore.shared.refresh(prefetch: true)
-                                    GameCatalogStore.shared.rememberCatalogItems()
-                                    if GameCatalogStore.shared.catalog.resolvedMaintenanceEnabled {
-                                        GameCatalogStore.shared.disableAllEnabledMods()
-                                    }
-                                }
-                            }
-                        }
-                        
-                        _ = self.checkLocalExpiration()
-                    } else {
-                        let msg = resDict["message"] as? String ?? "Key đã hết hạn hoặc bị thu hồi!"
-                        self.kickOutToLogin(reason: msg)
-                    }
+                    self?.handleHeartbeatResponse(data: data, response: response, error: error)
                 }
             }
         }.resume()
+    }
+    
+    @MainActor
+    private func handleHeartbeatResponse(data: Data?, response: URLResponse?, error: Error?) {
+        self.isVerifyingHeartbeat = false
+        guard self.isAuthorized else { return }
+        
+        if let httpResponse = response as? HTTPURLResponse {
+            self.syncServerClock(from: httpResponse, jsonDict: nil)
+        }
+        
+        if error != nil || (response as? HTTPURLResponse)?.statusCode != 200 {
+            self.consecutiveFailures += 1
+            if self.checkLocalExpiration() { return }
+            
+            if let lastSuccess = self.lastSuccessfulServerCheck,
+               Date().timeIntervalSince(lastSuccess) > self.maxOfflineGracePeriod,
+               self.consecutiveFailures >= 5 {
+                self.kickOutToLogin(reason: "Mất kết nối xác thực máy chủ quá lâu! Vui lòng kiểm tra mạng.")
+            }
+            return
+        }
+        
+        guard let httpResponse = response as? HTTPURLResponse,
+              let data = data,
+              let responseString = String(data: data, encoding: .utf8),
+              let decryptedString = self.decryptAES(responseString, key: self.secretKey),
+              let resData = decryptedString.data(using: .utf8),
+              let resDict = try? JSONSerialization.jsonObject(with: resData) as? [String: Any] else {
+            self.consecutiveFailures += 1
+            if self.consecutiveFailures >= 5 {
+                self.kickOutToLogin(reason: "Xác thực phiên thất bại! Vui lòng đăng nhập lại.")
+            }
+            return
+        }
+        
+        self.consecutiveFailures = 0
+        self.syncServerClock(from: httpResponse, jsonDict: resDict)
+        
+        if let authInfo = resDict["auth_info"] as? [String: Any],
+           (authInfo["status"] as? String) == "success" {
+            let rawExpire = authInfo["expires_at"] as? String ?? "N/A"
+            self.expireDate = rawExpire
+            self.maxDevices = "\(authInfo["max_devices"] as? Int ?? 1)"
+            self.parsedExpirationDate = self.parseExpirationDate(from: rawExpire, authInfo: authInfo)
+            self.lastSuccessfulServerCheck = Date()
+            self.isInteractionLocked = false
+            
+            self.applyHeartbeatCatalog(from: resDict)
+            _ = self.checkLocalExpiration()
+        } else {
+            let msg = resDict["message"] as? String ?? "Key đã hết hạn hoặc bị thu hồi!"
+            self.kickOutToLogin(reason: msg)
+        }
+    }
+    
+    @MainActor
+    private func applyHeartbeatCatalog(from resDict: [String: Any]) {
+        guard let catalogData = try? JSONSerialization.data(withJSONObject: resDict),
+              let decodedCatalog = try? JSONDecoder().decode(GameCatalog.self, from: catalogData) else {
+            return
+        }
+        
+        GameCatalogStore.shared.catalog = decodedCatalog
+        GameCatalogStore.shared.rememberCatalogItems()
+        
+        if decodedCatalog.resolvedMaintenanceEnabled {
+            GameCatalogStore.shared.disableAllEnabledMods()
+        }
+        
+        guard !self.isSyncingCatalogFromHeartbeat else { return }
+        self.isSyncingCatalogFromHeartbeat = true
+        
+        Task { @MainActor in
+            defer { self.isSyncingCatalogFromHeartbeat = false }
+            _ = await GameCatalogStore.shared.refresh(prefetch: true)
+            GameCatalogStore.shared.rememberCatalogItems()
+            if GameCatalogStore.shared.catalog.resolvedMaintenanceEnabled {
+                GameCatalogStore.shared.disableAllEnabledMods()
+            }
+        }
     }
     
     // MARK: - API CÔNG KHAI & ĐĂNG NHẬP KEY
@@ -1502,86 +1515,104 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
         request.httpBody = bodyString.data(using: .utf8)
         
         secureSession.dataTask(with: request) { [weak self] data, response, error in
-            guard let self = self else { return }
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
-                    self.isLoading = false
-                    
-                    if let error = error {
-                        if !isAutoLogin {
-                            self.errorMessage = "Lỗi kết nối: \(error.localizedDescription)"
-                        }
-                        return
-                    }
-                    
-                    guard let httpResponse = response as? HTTPURLResponse else {
-                        if !isAutoLogin {
-                            self.errorMessage = "Phản hồi máy chủ không hợp lệ"
-                        }
-                        return
-                    }
-                    
-                    if httpResponse.statusCode != 200 {
-                        if !isAutoLogin {
-                            self.errorMessage = "Server lỗi (HTTP \(httpResponse.statusCode))"
-                        }
-                        return
-                    }
-                    
-                    guard let data = data, let responseString = String(data: data, encoding: .utf8) else {
-                        if !isAutoLogin {
-                            self.errorMessage = "Dữ liệu trả về rỗng"
-                        }
-                        return
-                    }
-                    
-                    if let decryptedString = self.decryptAES(responseString, key: self.secretKey),
-                       let resData = decryptedString.data(using: .utf8),
-                       let resDict = try? JSONSerialization.jsonObject(with: resData) as? [String: Any] {
-                        
-                        self.syncServerClock(from: httpResponse, jsonDict: resDict)
-                        
-                        if let authInfo = resDict["auth_info"] as? [String: Any], (authInfo["status"] as? String) == "success" {
-                            let rawExpire = authInfo["expires_at"] as? String ?? "N/A"
-                            let expDate = self.parseExpirationDate(from: rawExpire, authInfo: authInfo)
-                            let trustedNow = Date().addingTimeInterval(self.serverTimeOffset)
-                            
-                            if let expDate = expDate, trustedNow >= expDate {
-                                self.errorMessage = "Key đã hết hạn!"
-                                return
-                            }
-                            
-                            self.savedKey = trimmedKey
-                            self.expireDate = rawExpire
-                            self.maxDevices = "\(authInfo["max_devices"] as? Int ?? 1)"
-                            self.parsedExpirationDate = expDate
-                            self.lastSuccessfulServerCheck = Date()
-                            self.lastHeartbeatAttempt = Date()
-                            self.consecutiveFailures = 0
-                            self.wasKickedOut = false
-                            self.isInteractionLocked = false
-                            self.errorMessage = nil
-                            self.isAuthorized = true
-                            
-                            if let catalogData = try? JSONSerialization.data(withJSONObject: resDict),
-                               let decodedCatalog = try? JSONDecoder().decode(GameCatalog.self, from: catalogData) {
-                                GameCatalogStore.shared.catalog = decodedCatalog
-                                GameCatalogStore.shared.rememberCatalogItems()
-                                if decodedCatalog.resolvedMaintenanceEnabled {
-                                    GameCatalogStore.shared.disableAllEnabledMods()
-                                }
-                            }
-                            
-                            self.startContinuousMonitoring()
-                        } else {
-                            self.errorMessage = resDict["message"] as? String ?? "Key không hợp lệ hoặc đã hết hạn"
-                        }
-                    } else if !isAutoLogin {
-                        self.errorMessage = "Giải mã thất bại! Dữ liệu bị can thiệp."
-                    }
+                    self?.handleAuthenticationResponse(
+                        data: data,
+                        response: response,
+                        error: error,
+                        trimmedKey: trimmedKey,
+                        isAutoLogin: isAutoLogin
+                    )
                 }
             }
         }.resume()
+    }
+    
+    @MainActor
+    private func handleAuthenticationResponse(
+        data: Data?,
+        response: URLResponse?,
+        error: Error?,
+        trimmedKey: String,
+        isAutoLogin: Bool
+    ) {
+        self.isLoading = false
+        
+        if let error = error {
+            if !isAutoLogin {
+                self.errorMessage = "Lỗi kết nối: \(error.localizedDescription)"
+            }
+            return
+        }
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            if !isAutoLogin {
+                self.errorMessage = "Phản hồi máy chủ không hợp lệ"
+            }
+            return
+        }
+        
+        if httpResponse.statusCode != 200 {
+            if !isAutoLogin {
+                self.errorMessage = "Server lỗi (HTTP \(httpResponse.statusCode))"
+            }
+            return
+        }
+        
+        guard let data = data, let responseString = String(data: data, encoding: .utf8) else {
+            if !isAutoLogin {
+                self.errorMessage = "Dữ liệu trả về rỗng"
+            }
+            return
+        }
+        
+        guard let decryptedString = self.decryptAES(responseString, key: self.secretKey),
+              let resData = decryptedString.data(using: .utf8),
+              let resDict = try? JSONSerialization.jsonObject(with: resData) as? [String: Any] else {
+            if !isAutoLogin {
+                self.errorMessage = "Giải mã thất bại! Dữ liệu bị can thiệp."
+            }
+            return
+        }
+        
+        self.syncServerClock(from: httpResponse, jsonDict: resDict)
+        
+        if let authInfo = resDict["auth_info"] as? [String: Any], (authInfo["status"] as? String) == "success" {
+            let rawExpire = authInfo["expires_at"] as? String ?? "N/A"
+            let expDate = self.parseExpirationDate(from: rawExpire, authInfo: authInfo)
+            let trustedNow = Date().addingTimeInterval(self.serverTimeOffset)
+            
+            if let expDate = expDate, trustedNow >= expDate {
+                self.errorMessage = "Key đã hết hạn!"
+                return
+            }
+            
+            self.savedKey = trimmedKey
+            self.expireDate = rawExpire
+            self.maxDevices = "\(authInfo["max_devices"] as? Int ?? 1)"
+            self.parsedExpirationDate = expDate
+            self.lastSuccessfulServerCheck = Date()
+            self.lastHeartbeatAttempt = Date()
+            self.consecutiveFailures = 0
+            self.wasKickedOut = false
+            self.isInteractionLocked = false
+            self.errorMessage = nil
+            self.isAuthorized = true
+            
+            if let catalogData = try? JSONSerialization.data(withJSONObject: resDict),
+               let decodedCatalog = try? JSONDecoder().decode(GameCatalog.self, from: catalogData) {
+                GameCatalogStore.shared.catalog = decodedCatalog
+                GameCatalogStore.shared.rememberCatalogItems()
+                if decodedCatalog.resolvedMaintenanceEnabled {
+                    GameCatalogStore.shared.disableAllEnabledMods()
+                }
+            }
+            
+            self.startContinuousMonitoring()
+        } else {
+            self.errorMessage = resDict["message"] as? String ?? "Key không hợp lệ hoặc đã hết hạn"
+        }
     }
     
     // MARK: - ĐỒNG BỘ GIỜ SERVER & PARSE THỜI HẠN
