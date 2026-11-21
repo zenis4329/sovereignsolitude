@@ -1,5 +1,6 @@
 import Foundation
 import Security
+import Combine
 
 enum AppDeviceIdentity {
     private static let service = "com.apexipa.remote-access"
@@ -62,6 +63,8 @@ struct GameItemCategory: RawRepresentable, Codable, Identifiable, Hashable {
 }
 
 struct GameCatalogItem: Codable, Identifiable, Hashable {
+    static let maxPackageFiles = 10
+
     let id: String
     var name: String
     var subtitle: String?
@@ -77,21 +80,28 @@ struct GameCatalogItem: Codable, Identifiable, Hashable {
 
     var resolvedPackagePassword: String? {
         let primary = packagePassword?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if !primary.isEmpty { return primary }
-        return nil
+        return primary.isEmpty ? nil : primary
     }
 
-    /// Tách danh sách URL từ `fileURL` (hỗ trợ 1 hoặc 2–4 file .3105 cách nhau bởi dấu phẩy, chấm phẩy hoặc xuống dòng)
+    /// Tách danh sách tối đa 10 URL từ `fileURL` (cách nhau bởi dấu phẩy, chấm phẩy hoặc xuống dòng) và lọc trùng
     var resolvedFileURLs: [String] {
-        guard let raw = fileURL else { return [] }
+        guard let raw = fileURL, !raw.isEmpty else { return [] }
         let separators = CharacterSet(charactersIn: ",;\n")
-        return raw
-            .components(separatedBy: separators)
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
+        var seen = Set<String>()
+        var result: [String] = []
+        result.reserveCapacity(Self.maxPackageFiles)
+
+        for part in raw.components(separatedBy: separators) {
+            let trimmed = part.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty, !seen.contains(trimmed) else { continue }
+            seen.insert(trimmed)
+            result.append(trimmed)
+            if result.count >= Self.maxPackageFiles { break }
+        }
+        return result
     }
 
-    /// Nhân bản thành các item con tương ứng với từng file để nạp/gỡ đồng loạt
+    /// Nhân bản thành các item con tương ứng với từng file để nạp/gỡ tuần tự (tối đa 10 file)
     func expandedSubItems() -> [GameCatalogItem] {
         let urls = resolvedFileURLs
         if urls.count <= 1 {
@@ -312,6 +322,7 @@ final class GameCatalogStore: ObservableObject {
     @Published private(set) var isLoading = false
     @Published private(set) var isPrefetching = false
     @Published private(set) var busyItemIDs: Set<String> = []
+    @Published private(set) var busyMultiItemIDs: Set<String> = []
     @Published private(set) var appliedItemIDs: Set<String> = []
     @Published private(set) var replacementRuleCounts: [String: Int] = [:]
     @Published private(set) var lastFetchedAt: Date?
@@ -327,9 +338,10 @@ final class GameCatalogStore: ObservableObject {
         isLoading = false
         lastError = nil
         lastFetchedAt = Date()
-        
-        if prefetch { 
-            await prefetchPackages() 
+        rememberCatalogItems()
+
+        if prefetch {
+            await prefetchPackages()
         }
         return true
     }
@@ -365,17 +377,21 @@ final class GameCatalogStore: ObservableObject {
     func isOn(itemID: String) -> Bool { appliedItemIDs.contains(itemID) }
     func isBusy(itemID: String) -> Bool { busyItemIDs.contains(itemID) }
     func replacementRuleCount(itemID: String) -> Int? { replacementRuleCounts[itemID] }
+
     func isCatalogItemVisible(_ item: GameCatalogItem) -> Bool {
         item.hidden != true && replacementRuleCounts[item.id] != nil
     }
-    func visibleItemCount(in game: GameCatalogGame) -> Int { game.items.filter(isCatalogItemVisible).count }
+
+    func visibleItemCount(in game: GameCatalogGame) -> Int {
+        game.items.filter(isCatalogItemVisible).count
+    }
 
     func isMultiItemOn(item: GameCatalogItem) -> Bool {
         item.expandedSubItems().contains { appliedItemIDs.contains($0.id) }
     }
 
     func isMultiItemBusy(item: GameCatalogItem) -> Bool {
-        item.expandedSubItems().contains { busyItemIDs.contains($0.id) }
+        busyMultiItemIDs.contains(item.id) || item.expandedSubItems().contains { busyItemIDs.contains($0.id) }
     }
 
     func setEnabled(_ enabled: Bool, item: GameCatalogItem) async {
@@ -402,8 +418,13 @@ final class GameCatalogStore: ObservableObject {
         }
     }
 
-    /// Bật hoặc tắt đồng loạt 2–4 file trong 1 lần gạt
+    /// Bật hoặc tắt mượt mà tối đa 10 file .3105 trong 1 lần gạt
     func setMultiEnabled(_ enabled: Bool, item: GameCatalogItem) async {
+        guard !busyMultiItemIDs.contains(item.id) else { return }
+        busyMultiItemIDs.insert(item.id)
+        lastError = nil
+        defer { busyMultiItemIDs.remove(item.id) }
+
         let subItems = item.expandedSubItems()
         for sub in subItems {
             Self.cachedCatalogItems[sub.id] = sub
@@ -411,35 +432,44 @@ final class GameCatalogStore: ObservableObject {
 
         if enabled {
             var activated: [GameCatalogItem] = []
+            activated.reserveCapacity(subItems.count)
+
             for sub in subItems {
-                var waitCount = 0
-                while isBusy(itemID: sub.id) && waitCount < 30 {
-                    try? await Task.sleep(nanoseconds: 100_000_000)
-                    waitCount += 1
-                }
+                await waitUntilIdle(itemID: sub.id)
                 if !isOn(itemID: sub.id) {
                     await setEnabled(true, item: sub)
                 }
                 if let err = lastError, !err.isEmpty {
-                    // Rollback tắt lại các file đã bật trước đó nếu có file lỗi
-                    for prev in activated {
-                        await setEnabled(false, item: prev)
+                    // Rollback tắt ngược từ file mới nhất về file đầu nếu gặp lỗi
+                    for prev in activated.reversed() {
+                        await waitUntilIdle(itemID: prev.id)
+                        if isOn(itemID: prev.id) {
+                            await setEnabled(false, item: prev)
+                        }
+                        await Task.yield()
                     }
                     return
                 }
                 activated.append(sub)
+                await Task.yield()
             }
         } else {
-            for sub in subItems {
-                var waitCount = 0
-                while isBusy(itemID: sub.id) && waitCount < 30 {
-                    try? await Task.sleep(nanoseconds: 100_000_000)
-                    waitCount += 1
-                }
+            // Gỡ theo thứ tự ngược lại (10 -> 1) để khôi phục file gốc an toàn
+            for sub in subItems.reversed() {
+                await waitUntilIdle(itemID: sub.id)
                 if isOn(itemID: sub.id) {
                     await setEnabled(false, item: sub)
                 }
+                await Task.yield()
             }
+        }
+    }
+
+    private func waitUntilIdle(itemID: String, maxTenthsOfSecond: Int = 150) async {
+        var waitCount = 0
+        while isBusy(itemID: itemID) && waitCount < maxTenthsOfSecond {
+            try? await Task.sleep(nanoseconds: 100_000_000)
+            waitCount += 1
         }
     }
 
@@ -460,20 +490,18 @@ final class GameCatalogStore: ObservableObject {
             
             let turnOffPass = {
                 self.rememberCatalogItems()
-                for item in Self.cachedCatalogItems.values {
-                    var waitCount = 0
-                    while self.isBusy(itemID: item.id) && waitCount < 20 {
-                        try? await Task.sleep(nanoseconds: 100_000_000)
-                        waitCount += 1
-                    }
+                let orderedSubItems = Self.cachedCatalogItems.values.sorted { $0.id > $1.id }
+                for item in orderedSubItems {
+                    await self.waitUntilIdle(itemID: item.id)
                     if self.isOn(itemID: item.id) {
                         await self.setEnabled(false, item: item)
+                        await Task.yield()
                     }
                 }
             }
             
             await turnOffPass()
-            try? await Task.sleep(nanoseconds: 600_000_000)
+            try? await Task.sleep(nanoseconds: 500_000_000)
             await turnOffPass()
         }
     }
