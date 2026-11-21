@@ -1,46 +1,6 @@
 import SwiftUI
 import UIKit
 
-// MARK: - MỞ RỘNG TỰ ĐỘNG TẮT TOÀN BỘ CHỨC NĂNG KHI HẾT KEY / ĐĂNG XUẤT / BẢO TRÌ
-extension GameCatalogStore {
-    @MainActor
-    private static var cachedCatalogItems: [String: GameCatalogItem] = [:]
-    
-    @MainActor
-    func rememberCatalogItems() {
-        let allGames = self.catalog.games + self.catalog.orderedGames
-        for game in allGames {
-            for item in game.items {
-                Self.cachedCatalogItems[item.id] = item
-            }
-        }
-    }
-    
-    func disableAllEnabledMods() {
-        Task { @MainActor in
-            self.rememberCatalogItems()
-            
-            let turnOffPass = {
-                self.rememberCatalogItems()
-                for item in Self.cachedCatalogItems.values {
-                    var waitCount = 0
-                    while self.isBusy(itemID: item.id) && waitCount < 20 {
-                        try? await Task.sleep(nanoseconds: 100_000_000)
-                        waitCount += 1
-                    }
-                    if self.isOn(itemID: item.id) {
-                        await self.setEnabled(false, item: item)
-                    }
-                }
-            }
-            
-            await turnOffPass()
-            try? await Task.sleep(nanoseconds: 600_000_000)
-            await turnOffPass()
-        }
-    }
-}
-
 // MARK: - BỘ TẢI ẢNH (Có hiệu ứng Fade-in)
 struct SecureCatalogImage: View {
     let urlString: String
@@ -303,7 +263,7 @@ struct ScaleButtonStyle: ButtonStyle {
     }
 }
 
-// MARK: - HIỆU ỨNG TUYẾT RƠI (Tự chứa - Không lo trùng lặp)
+// MARK: - HIỆU ỨNG TUYẾT RƠI
 struct CatalogSnowParticle: Identifiable {
     let id = UUID()
     var x: CGFloat
@@ -374,7 +334,7 @@ private struct GameDetailView: View {
     
     private var items: [GameCatalogItem] {
         (game?.items ?? [])
-            .filter { $0.category.rawValue == selectedTabID }
+            .filter { $0.hidden != true && $0.category.rawValue == selectedTabID }
             .sorted { ($0.order ?? Int.max) < ($1.order ?? Int.max) }
     }
     
@@ -534,7 +494,7 @@ private struct GameDetailView: View {
     }
 }
 
-// MARK: - HÀNG CHỨA TỪNG BẢN MOD (TẤT CẢ ĐỀU DÙNG AVATAR APP)
+// MARK: - HÀNG CHỨA TỪNG BẢN MOD (HỖ TRỢ GỘP 2–4 FILE .3105)
 private struct ModItemRow: View {
     let item: GameCatalogItem
     @StateObject private var store = GameCatalogStore.shared
@@ -554,15 +514,27 @@ private struct ModItemRow: View {
         || item.name.localizedCaseInsensitiveContains("AIM HEAD")
         || item.name.localizedCaseInsensitiveContains("CAN CHECK")
     }
+
+    private var badgeLabel: String {
+        let custom = (item.badge ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !custom.isEmpty { return custom }
+        return isVip ? "VIP" : "FREE"
+    }
+
+    private var isHighlightedBadge: Bool {
+        let custom = (item.badge ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return !custom.isEmpty || isVip
+    }
     
     private var hasGuide: Bool {
         !(item.usageGuide ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !(item.imageURL ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
     
     var body: some View {
-        let hasLink = !(item.fileURL ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        let isOn = store.isOn(itemID: item.id)
-        let busy = store.isBusy(itemID: item.id)
+        let fileCount = item.resolvedFileURLs.count
+        let hasLink = fileCount > 0
+        let isOn = store.isMultiItemOn(item: item)
+        let busy = store.isMultiItemBusy(item: item)
         
         HStack(spacing: 14) {
             // ICON: DÙNG AVATAR APP CHO TẤT CẢ CÁC MOD
@@ -595,22 +567,22 @@ private struct ModItemRow: View {
                         .font(.system(size: 16, weight: .bold))
                         .foregroundColor(.white)
                     
-                    Text(isVip ? "VIP" : "FREE")
+                    Text(badgeLabel)
                         .font(.system(size: 9, weight: .black))
-                        .foregroundColor(isVip ? .black : .white.opacity(0.8))
+                        .foregroundColor(isHighlightedBadge ? .black : .white.opacity(0.8))
                         .padding(.horizontal, 8).padding(.vertical, 3)
                         .background(
-                            isVip
+                            isHighlightedBadge
                             ? AnyView(LinearGradient(colors: [.cyan, .mint], startPoint: .topLeading, endPoint: .bottomTrailing))
                             : AnyView(Color.white.opacity(0.2))
                         )
                         .cornerRadius(6)
-                        .shadow(color: isVip ? .cyan.opacity(0.6) : .clear, radius: 4)
+                        .shadow(color: isHighlightedBadge ? .cyan.opacity(0.6) : .clear, radius: 4)
                 }
                 
                 HStack(spacing: 4) {
-                    Image(systemName: "info.square.fill").font(.system(size: 11))
-                    Text(item.subtitle ?? "Tap để bật/tắt chức năng")
+                    Image(systemName: fileCount > 1 ? "square.stack.3d.up.fill" : "info.square.fill").font(.system(size: 11))
+                    Text(item.subtitle?.isEmpty == false ? item.subtitle! : (fileCount > 1 ? "Gộp \(fileCount) gói chức năng" : "Tap để bật/tắt chức năng"))
                         .font(.system(size: 12, weight: .medium))
                 }
                 .foregroundColor(.white.opacity(0.5))
@@ -618,17 +590,16 @@ private struct ModItemRow: View {
             
             Spacer()
             
-            // Toggle
+            // Toggle bật/tắt đồng loạt tất cả file trong mục
             if busy {
                 ProgressView().tint(.cyan).scaleEffect(1.2).padding(.trailing, 5)
             } else {
                 Toggle("", isOn: Binding(
-                    get: { store.isOn(itemID: item.id) },
+                    get: { store.isMultiItemOn(item: item) },
                     set: { value in
-                        // Luôn cho phép tắt (value == false) để tránh kẹt nút gạt
                         if !value {
                             UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                            Task { await store.setEnabled(false, item: item) }
+                            Task { await store.setMultiEnabled(false, item: item) }
                             return
                         }
                         
@@ -636,10 +607,10 @@ private struct ModItemRow: View {
                         
                         UIImpactFeedbackGenerator(style: .light).impactOccurred()
                         Task {
-                            await store.setEnabled(true, item: item)
+                            await store.setMultiEnabled(true, item: item)
                             
                             if !authManager.isAuthorized || authManager.isInteractionLocked || store.catalog.resolvedMaintenanceEnabled {
-                                await store.setEnabled(false, item: item)
+                                await store.setMultiEnabled(false, item: item)
                                 return
                             }
                             
