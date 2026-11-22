@@ -84,7 +84,7 @@ struct SecureCatalogImage: View {
 }
 
 // ==========================================================
-// MARK: - 🌌 BACKGROUND EFFECTS
+// MARK: - 🌌 BACKGROUND EFFECTS (TỐI ƯU 120FPS)
 // ==========================================================
 struct AuroraWaves: View {
     var body: some View {
@@ -231,11 +231,13 @@ struct ModernBackground: View {
                 ShootingStars().opacity(0.9)
             }
         }.ignoresSafeArea()
+        // 🌟 TỐI ƯU 120FPS: Gom toàn bộ hiệu ứng nền thành 1 layer Metal duy nhất
+        .drawingGroup()
     }
 }
 
 // ==========================================================
-// MARK: - 🌟 SPARKLE BURST (ĐÃ THÊM LẠI)
+// MARK: - 🌟 SPARKLE BURST
 // ==========================================================
 struct SparkleBurst: View {
     let trigger: Bool
@@ -281,6 +283,7 @@ struct AvatarOrbits: View {
                 }
             }
         }.frame(width: ringSize, height: ringSize).allowsHitTesting(false)
+        .drawingGroup() // Tối ưu hạt xoay 120fps
     }
 }
 
@@ -318,6 +321,9 @@ struct GameCatalogView: View {
     @State private var glowPulse = false
     @State private var ringRotate: Double = 0
     @State private var haloScale: CGFloat = 1.0
+    
+    // Nút gạt ANTIBAN (Chỉ làm cảnh)
+    @AppStorage("isAntiBanFakeEnabled") private var isAntiBanFakeEnabled: Bool = true
 
     private var isSessionActive: Bool {
         authManager.isAuthorized && !authManager.isInteractionLocked && !store.catalog.resolvedMaintenanceEnabled
@@ -332,7 +338,7 @@ struct GameCatalogView: View {
                         profileCard
                         featuredGameCard
                         systemStatusSection
-                        antiBanBanner
+                        antiBanBanner // BANNER CÓ NÚT GẠT
                     }
                     .padding(.bottom, 100)
                 }
@@ -347,13 +353,12 @@ struct GameCatalogView: View {
                 withAnimation(.easeInOut(duration: 2.8).repeatForever(autoreverses: true)) { haloScale = 1.15 }
                 if !authManager.isAuthorized || store.catalog.resolvedMaintenanceEnabled { store.disableAllEnabledMods() }
             }
-            .onChange(of: store.catalog.games.count) { _ in store.rememberCatalogItems() }
             .onChange(of: authManager.isAuthorized) { a in if !a { isTabBarHidden = false; store.disableAllEnabledMods() } }
             .onChange(of: store.catalog.resolvedMaintenanceEnabled) { m in if m { isTabBarHidden = false; store.disableAllEnabledMods() } }
         }
     }
 
-    // MARK: PROFILE CARD (CÓ ANTIBAN ONLINE)
+    // MARK: PROFILE CARD
     private var profileCard: some View {
         HStack(spacing: 14) {
             avatarView
@@ -372,14 +377,18 @@ struct GameCatalogView: View {
                     .padding(.horizontal, 6).padding(.vertical, 2)
                     .background(Color.white.opacity(0.1)).clipShape(Capsule())
                     
-                    HStack(spacing: 4) {
-                        Image(systemName: "shield.checkered").font(.system(size: 9, weight: .bold))
-                        Text("ANTIBAN").font(.system(size: 9.5, weight: .black, design: .rounded))
+                    // Chỉ hiện chữ ANTIBAN nếu đang bật
+                    if isAntiBanFakeEnabled {
+                        HStack(spacing: 4) {
+                            Image(systemName: "shield.checkered").font(.system(size: 9, weight: .bold))
+                            Text("ANTIBAN").font(.system(size: 9.5, weight: .black, design: .rounded))
+                        }
+                        .foregroundColor(.green)
+                        .padding(.horizontal, 6).padding(.vertical, 2)
+                        .background(Color.green.opacity(0.15)).clipShape(Capsule())
+                        .overlay(Capsule().strokeBorder(Color.green.opacity(0.4), lineWidth: 0.8))
+                        .transition(.scale.combined(with: .opacity))
                     }
-                    .foregroundColor(.green)
-                    .padding(.horizontal, 6).padding(.vertical, 2)
-                    .background(Color.green.opacity(0.15)).clipShape(Capsule())
-                    .overlay(Capsule().strokeBorder(Color.green.opacity(0.4), lineWidth: 0.8))
                 }
             }
 
@@ -417,10 +426,12 @@ struct GameCatalogView: View {
             Circle().stroke(Color.white.opacity(0.25), lineWidth: 1).frame(width: 56, height: 56)
             SecureCatalogImage(urlString: authManager.publicAvatarURL, placeholder: Image(systemName: "person.crop.circle.fill"))
                 .frame(width: 54, height: 54).clipShape(Circle()).overlay(Circle().strokeBorder(Color.white.opacity(0.3), lineWidth: 1)).shadow(color: .cyan.opacity(0.6), radius: 8)
-        }.frame(width: 90, height: 90)
+        }
+        .frame(width: 90, height: 90)
+        .drawingGroup() // Tối ưu Avatar 120fps
     }
 
-    // MARK: FEATURED GAME CARD (KHÔNG HIỆN SỐ MOD)
+    // MARK: FEATURED GAME CARD
     private var featuredGameCard: some View {
         Group {
             if let game = store.catalog.orderedGames.first {
@@ -458,14 +469,8 @@ struct GameCatalogView: View {
                         }
                     }
                     .padding(16)
-                    .background(
-                        RoundedRectangle(cornerRadius: 22, style: .continuous)
-                            .fill(LinearGradient(colors: [Color.white.opacity(0.08), Color.white.opacity(0.03)], startPoint: .topLeading, endPoint: .bottomTrailing))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 22, style: .continuous)
-                            .strokeBorder(LinearGradient(colors: [.cyan.opacity(0.6), .purple.opacity(0.4), .clear], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1.2)
-                    )
+                    .background(RoundedRectangle(cornerRadius: 22, style: .continuous).fill(LinearGradient(colors: [Color.white.opacity(0.08), Color.white.opacity(0.03)], startPoint: .topLeading, endPoint: .bottomTrailing)))
+                    .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).strokeBorder(LinearGradient(colors: [.cyan.opacity(0.6), .purple.opacity(0.4), .clear], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1.2))
                     .shadow(color: .cyan.opacity(0.15), radius: 15, y: 5)
                 }
                 .buttonStyle(ClassicScaleButtonStyle())
@@ -476,7 +481,7 @@ struct GameCatalogView: View {
         }
     }
 
-    // MARK: SYSTEM STATUS (LẤP ĐẦY KHOẢNG TRỐNG)
+    // MARK: SYSTEM STATUS
     private var systemStatusSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("TRẠNG THÁI HỆ THỐNG")
@@ -486,7 +491,7 @@ struct GameCatalogView: View {
             
             HStack(spacing: 10) {
                 StatusCard(icon: "shield.lefthalf.filled", title: "Bypass", value: "An Toàn", color: .green)
-                StatusCard(icon: "lock.shield.fill", title: "Anti-Ban", value: "Online", color: .cyan)
+                StatusCard(icon: "lock.shield.fill", title: "Anti-Ban", value: isAntiBanFakeEnabled ? "Online" : "Off", color: isAntiBanFakeEnabled ? .cyan : .gray)
                 StatusCard(icon: "antenna.radiowaves.left.and.right", title: "Server", value: "VN", color: .purple)
             }
             .padding(.horizontal, 16)
@@ -494,34 +499,48 @@ struct GameCatalogView: View {
         .padding(.top, 6)
     }
 
-    // MARK: ANTIBAN BANNER
+    // MARK: ANTIBAN BANNER (CÓ NÚT GẠT)
     private var antiBanBanner: some View {
-        VStack(spacing: 8) {
-            Image(systemName: "checkmark.shield.fill")
-                .font(.system(size: 32))
-                .foregroundColor(.green)
-                .shadow(color: .green.opacity(0.6), radius: 10)
-            
-            Text("HỆ THỐNG ANTIBAN ONLINE")
-                .font(.system(size: 14, weight: .black, design: .rounded))
-                .foregroundColor(.white)
-            
-            Text("Mọi tính năng đều được mã hoá và bảo vệ.\nAn toàn tuyệt đối khi tham gia trận đấu.")
-                .font(.system(size: 11, weight: .medium))
-                .foregroundColor(.white.opacity(0.5))
-                .multilineTextAlignment(.center)
-                .lineSpacing(3)
+        VStack(spacing: 12) {
+            HStack(spacing: 14) {
+                Image(systemName: isAntiBanFakeEnabled ? "checkmark.shield.fill" : "xmark.shield.fill")
+                    .font(.system(size: 38))
+                    .foregroundColor(isAntiBanFakeEnabled ? .green : .red)
+                    .shadow(color: (isAntiBanFakeEnabled ? Color.green : Color.red).opacity(0.8), radius: 10)
+                
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(isAntiBanFakeEnabled ? "ANTIBAN ONLINE" : "ANTIBAN ĐÃ TẮT")
+                        .font(.system(size: 15, weight: .black, design: .rounded))
+                        .foregroundColor(isAntiBanFakeEnabled ? .white : .red)
+                    
+                    Text(isAntiBanFakeEnabled ? "Hệ thống đang bảo vệ bạn an toàn." : "Cảnh báo: Nguy cơ bị ban rất cao!")
+                        .font(.system(size: 11.5, weight: .medium))
+                        .foregroundColor(.white.opacity(0.6))
+                }
+                
+                Spacer()
+                
+                // Nút gạt (Chỉ làm cảnh)
+                Toggle("", isOn: $isAntiBanFakeEnabled)
+                    .labelsHidden()
+                    .tint(.green)
+                    .scaleEffect(0.95)
+                    .onChange(of: isAntiBanFakeEnabled) { val in
+                        if val { iPhoneHaptics.shared.playTickOn() }
+                        else { iPhoneHaptics.shared.playTickOff() }
+                    }
+            }
         }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 24)
+        .padding(18)
         .background(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(Color.green.opacity(0.05))
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .fill(isAntiBanFakeEnabled ? Color.green.opacity(0.08) : Color.red.opacity(0.08))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .strokeBorder(Color.green.opacity(0.2), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .strokeBorder(isAntiBanFakeEnabled ? Color.green.opacity(0.35) : Color.red.opacity(0.35), lineWidth: 1.2)
         )
+        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isAntiBanFakeEnabled)
         .padding(.horizontal, 16)
         .padding(.top, 4)
     }
