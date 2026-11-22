@@ -84,7 +84,7 @@ struct SecureCatalogImage: View {
 }
 
 // ==========================================================
-// MARK: - 🌌 BACKGROUND (AURORA, STARS, PARTICLES)
+// MARK: - 🌌 BACKGROUND EFFECTS
 // ==========================================================
 struct AuroraWaves: View {
     var body: some View {
@@ -235,6 +235,30 @@ struct ModernBackground: View {
 }
 
 // ==========================================================
+// MARK: - 🌟 SPARKLE BURST (ĐÃ THÊM LẠI)
+// ==========================================================
+struct SparkleBurst: View {
+    let trigger: Bool
+    var body: some View {
+        ZStack {
+            ForEach(0..<8) { i in
+                let angle = Double(i) * .pi / 4
+                Circle()
+                    .fill(Color.cyan)
+                    .frame(width: 5, height: 5)
+                    .offset(
+                        x: trigger ? CGFloat(cos(angle)) * 34 : 0,
+                        y: trigger ? CGFloat(sin(angle)) * 34 : 0
+                    )
+                    .opacity(trigger ? 0 : 1)
+                    .scaleEffect(trigger ? 1.8 : 0.3)
+            }
+        }
+        .allowsHitTesting(false)
+    }
+}
+
+// ==========================================================
 // MARK: - 🌟 AVATAR ORBITS
 // ==========================================================
 struct AvatarOrbits: View {
@@ -268,7 +292,24 @@ struct ClassicScaleButtonStyle: ButtonStyle {
 }
 
 // ==========================================================
-// MARK: - MÀN HÌNH CHÍNH (LẤP ĐẦY KHOẢNG TRỐNG)
+// MARK: - STATUS CARD HELPER
+// ==========================================================
+struct StatusCard: View {
+    let icon: String; let title: String; let value: String; let color: Color
+    var body: some View {
+        VStack(spacing: 6) {
+            Image(systemName: icon).font(.system(size: 16, weight: .semibold)).foregroundColor(color)
+            Text(value).font(.system(size: 13, weight: .bold, design: .rounded)).foregroundColor(.white)
+            Text(title).font(.system(size: 9.5, weight: .medium)).foregroundColor(.white.opacity(0.5))
+        }
+        .frame(maxWidth: .infinity).padding(.vertical, 14)
+        .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color.white.opacity(0.04)))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(color.opacity(0.25), lineWidth: 1))
+    }
+}
+
+// ==========================================================
+// MARK: - MÀN HÌNH CHÍNH
 // ==========================================================
 struct GameCatalogView: View {
     @StateObject private var store = GameCatalogStore.shared
@@ -306,6 +347,7 @@ struct GameCatalogView: View {
                 withAnimation(.easeInOut(duration: 2.8).repeatForever(autoreverses: true)) { haloScale = 1.15 }
                 if !authManager.isAuthorized || store.catalog.resolvedMaintenanceEnabled { store.disableAllEnabledMods() }
             }
+            .onChange(of: store.catalog.games.count) { _ in store.rememberCatalogItems() }
             .onChange(of: authManager.isAuthorized) { a in if !a { isTabBarHidden = false; store.disableAllEnabledMods() } }
             .onChange(of: store.catalog.resolvedMaintenanceEnabled) { m in if m { isTabBarHidden = false; store.disableAllEnabledMods() } }
         }
@@ -323,7 +365,6 @@ struct GameCatalogView: View {
                     .shadow(color: .cyan.opacity(0.4), radius: 6)
                 
                 HStack(spacing: 6) {
-                    // Badge Online
                     HStack(spacing: 4) {
                         Circle().fill(Color.green).frame(width: 5, height: 5).shadow(color: .green, radius: 3)
                         Text("Online").font(.system(size: 9.5, weight: .bold)).foregroundColor(.white.opacity(0.8))
@@ -331,7 +372,6 @@ struct GameCatalogView: View {
                     .padding(.horizontal, 6).padding(.vertical, 2)
                     .background(Color.white.opacity(0.1)).clipShape(Capsule())
                     
-                    // Badge ANTIBAN
                     HStack(spacing: 4) {
                         Image(systemName: "shield.checkered").font(.system(size: 9, weight: .bold))
                         Text("ANTIBAN").font(.system(size: 9.5, weight: .black, design: .rounded))
@@ -380,7 +420,7 @@ struct GameCatalogView: View {
         }.frame(width: 90, height: 90)
     }
 
-    // MARK: FEATURED GAME CARD (TO ĐẸP, KHÔNG HIỆN SỐ MOD)
+    // MARK: FEATURED GAME CARD (KHÔNG HIỆN SỐ MOD)
     private var featuredGameCard: some View {
         Group {
             if let game = store.catalog.orderedGames.first {
@@ -454,7 +494,7 @@ struct GameCatalogView: View {
         .padding(.top, 6)
     }
 
-    // MARK: ANTIBAN BANNER (LẤP ĐẦY KHOẢNG TRỐNG DƯỚI)
+    // MARK: ANTIBAN BANNER
     private var antiBanBanner: some View {
         VStack(spacing: 8) {
             Image(systemName: "checkmark.shield.fill")
@@ -488,21 +528,6 @@ struct GameCatalogView: View {
 
     private var totalEnabledAll: Int {
         store.catalog.orderedGames.reduce(0) { $0 + $1.items.filter { $0.hidden != true && store.isMultiItemOn(item: $0) }.count }
-    }
-}
-
-// MARK: - STATUS CARD HELPER
-struct StatusCard: View {
-    let icon: String; let title: String; let value: String; let color: Color
-    var body: some View {
-        VStack(spacing: 6) {
-            Image(systemName: icon).font(.system(size: 16, weight: .semibold)).foregroundColor(color)
-            Text(value).font(.system(size: 13, weight: .bold, design: .rounded)).foregroundColor(.white)
-            Text(title).font(.system(size: 9.5, weight: .medium)).foregroundColor(.white.opacity(0.5))
-        }
-        .frame(maxWidth: .infinity).padding(.vertical, 14)
-        .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color.white.opacity(0.04)))
-        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(color.opacity(0.25), lineWidth: 1))
     }
 }
 
