@@ -20,19 +20,21 @@ final class SecurityGuard: ObservableObject {
     private let globalWindow: TimeInterval = 3.0
     private let globalMax: Int = 20
 
-    // Session binding (chống can thiệp state)
-    private let sessionNonce = UUID().uuidString
+    // Launch cooldown
     private var launchGuard: Date = .distantPast
     private let launchCooldown: TimeInterval = 1.5
+
+    private let sessionNonce = UUID().uuidString
 
     private init() {}
 
     // ---------- Khởi động: quét toàn bộ ----------
     func bootstrap() {
         var reasons: [String] = []
-        if isJailbroken() { reasons.append("Jailbreak") }
-        if isDebugged()   { reasons.append("Debugger") }
-        if hasInjection() { reasons.append("Dylib Injection") }
+        if isJailbroken()    { reasons.append("Jailbreak") }
+        if isDebugged()      { reasons.append("Debugger") }
+        if hasInjection()    { reasons.append("Dylib Injection") }
+        if isFridaPortOpen() { reasons.append("Frida Server") }
 
         if reasons.isEmpty {
             compromised = false
@@ -46,7 +48,6 @@ final class SecurityGuard: ObservableObject {
     // ---------- Kiểm tra trước thao tác quan trọng ----------
     func canPerformCriticalAction() -> Bool {
         if compromised { return false }
-        // Re-audit nhanh ở mỗi action (fail-closed)
         if isDebugged() || hasInjection() {
             compromised = true
             compromiseReason = "Tamper detected"
@@ -76,7 +77,6 @@ final class SecurityGuard: ObservableObject {
         return true
     }
 
-    // ---------- Nonce dùng để bind session ----------
     func currentNonce() -> String { sessionNonce }
 
     // ==========================================================
@@ -95,7 +95,8 @@ final class SecurityGuard: ObservableObject {
             "/Applications/WinterBoard.app",
             "/Applications/blackra1n.app",
             "/Applications/IntelliScreen.app",
-            "/Applications/Snoop-itConfig.app"
+            "/Applications/Snoop-itConfig.app",
+            "/var/jb", "/var/jb/usr/bin/ssh"
         ]
         for p in paths where FileManager.default.fileExists(atPath: p) { return true }
         // Thử ghi ngoài sandbox
@@ -116,22 +117,68 @@ final class SecurityGuard: ObservableObject {
         return (info.kp_proc.p_flag & P_TRACED) != 0
     }
 
+    /// Phát hiện inject dylib (Frida, Substrate, Substitute, Cycript, libhooker...)
+    /// Dùng PUBLIC API: dlsym + Bundle.allFrameworks + env var
     private func hasInjection() -> Bool {
+        // 1. Environment injection
         let env = ProcessInfo.processInfo.environment
         let suspiciousEnv = ["DYLD_INSERT_LIBRARIES", "DYLD_FRAMEWORK_PATH", "DYLD_LIBRARY_PATH"]
         for key in suspiciousEnv {
             if let v = env[key], !v.isEmpty { return true }
         }
+
+        // 2. Quét symbol của các framework hook qua dlsym (public API)
+        let rtldDefault = UnsafeMutableRawPointer(bitPattern: -2)
+        let badSymbols: [String] = [
+            "MSHookFunction", "MSHookMessageEx", "MSFindSymbol",
+            "MSGetImageByName", "MSLog",
+            "SubstituteHookFunction", "SubstituteFindImageByName",
+            "SubstituteInterface",
+            "frida_agent_main", "FRIDA_AGENT_ENTRY",
+            "gum_init_embedded", "gum_module_find_export_by_name",
+            "cycript_init", "CYListenServer",
+            "libhooker_init", "hook_function",
+            "FLEXManager", "TweakInjectInit"
+        ]
+        for sym in badSymbols {
+            if dlsym(rtldDefault, sym) != nil { return true }
+        }
+
+        // 3. Quét bundle lạ nạp runtime
+        let allowedPrefixes = ["/System/", "/usr/lib/", "/private/preboot/", Bundle.main.bundlePath]
         let badKeywords = ["substitute", "substrate", "frida", "cycript",
-                           "libhooker", "tweakinject", "flexloader", "choicy"]
-        let count = _dyld_image_count()
-        for i in 0..<count {
-            if let name = _dyld_get_image_name(i) {
-                let path = String(cString: name).lowercased()
-                for kw in badKeywords where path.contains(kw) { return true }
+                           "libhooker", "tweakinject", "flexloader", "choicy",
+                           "reveal", "cydia"]
+        for bundle in Bundle.allFrameworks + Bundle.allBundles {
+            let path = bundle.bundlePath
+            let isAllowed = allowedPrefixes.contains(where: { path.hasPrefix($0) })
+            if !isAllowed {
+                let low = path.lowercased()
+                for kw in badKeywords where low.contains(kw) { return true }
             }
         }
+
         return false
+    }
+
+    /// Chống Frida gắn qua cổng 27042 (mặc định Frida server)
+    private func isFridaPortOpen() -> Bool {
+        let port: UInt16 = 27042
+        let sock = socket(AF_INET, SOCK_STREAM, 0)
+        guard sock >= 0 else { return false }
+        defer { close(sock) }
+
+        var addr = sockaddr_in()
+        addr.sin_family = sa_family_t(AF_INET)
+        addr.sin_port = port.bigEndian
+        addr.sin_addr.s_addr = inet_addr("127.0.0.1")
+
+        let result = withUnsafePointer(to: &addr) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                connect(sock, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+            }
+        }
+        return result == 0
     }
 }
 
@@ -809,7 +856,7 @@ private struct GameDetailView: View {
 
             Spacer(minLength: 4)
 
-            // 🔴 NÚT TẮT TẤT CẢ (chỉ hiện khi có mod bật)
+            // 🔴 NÚT TẮT TẤT CẢ
             if totalActiveAllGames > 0 {
                 Button {
                     iPhoneHaptics.shared.playTickOff()
@@ -1123,11 +1170,9 @@ private struct ModernModRow: View {
     }
 
     private func handleToggle(_ newVal: Bool) {
-        // 🛡️ Rate limit chống spam (bug / exploit)
         guard !store.isMultiItemBusy(item: item) else {
             localToggle = store.isMultiItemOn(item: item); return
         }
-        // 🛡️ Integrity check trước action quan trọng
         guard SecurityGuard.shared.canPerformCriticalAction() else {
             iPhoneHaptics.shared.playError()
             localToggle = store.isMultiItemOn(item: item)
@@ -1135,7 +1180,6 @@ private struct ModernModRow: View {
             showErrorAlert = true
             return
         }
-        // 🛡️ Chống double-tap/rapid toggle
         guard SecurityGuard.shared.throttleToggle(for: item.id) else {
             localToggle = store.isMultiItemOn(item: item); return
         }
