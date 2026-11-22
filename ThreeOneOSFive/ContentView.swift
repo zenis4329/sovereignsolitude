@@ -3,7 +3,7 @@ import UIKit
 import AudioToolbox
 
 // ==========================================================
-// MARK: - BACKGROUND (ẢNH NỀN APP + TỐI ĐEN)
+// MARK: - BACKGROUND (DÙNG SecureCatalogImage GIỐNG GameCatalogView)
 // ==========================================================
 struct AppBackground: View {
     let urlString: String
@@ -13,21 +13,20 @@ struct AppBackground: View {
             ZStack {
                 Color.black
 
-                // ẢNH NỀN APP HIỆN RÕ
-                if !urlString.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    SecureRemoteImage(urlString: urlString, placeholder: Image(systemName: "photo"))
-                        .scaledToFill()
-                        .frame(width: geo.size.width, height: geo.size.height)
-                        .clipped()
-                        .opacity(0.55)
-                }
+                // ẢNH NỀN - DÙNG SecureCatalogImage (CHẮC CHẮN HIỆN)
+                SecureCatalogImage(
+                    urlString: urlString,
+                    placeholder: Image(systemName: "photo")
+                )
+                .frame(width: geo.size.width, height: geo.size.height)
+                .opacity(0.9)
 
-                // Gradient đen phủ dần xuống
+                // Gradient nhẹ để chữ nổi — không đè chết ảnh
                 LinearGradient(
                     colors: [
-                        Color.black.opacity(0.2),
-                        Color.black.opacity(0.6),
-                        Color.black.opacity(0.95)
+                        Color.black.opacity(0.1),
+                        Color.black.opacity(0.35),
+                        Color.black.opacity(0.8)
                     ],
                     startPoint: .top,
                     endPoint: .bottom
@@ -39,40 +38,22 @@ struct AppBackground: View {
 }
 
 // ==========================================================
-// MARK: - NEON WHITE STYLES
+// MARK: - STYLES (NEON WHITE - TỐI GIẢN, NHẸ GPU)
 // ==========================================================
 extension View {
-    /// Viền trắng neon phát sáng
-    func neonWhiteBorder(cornerRadius: CGFloat = 20, lineWidth: CGFloat = 1.2) -> some View {
-        self.overlay(
-            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .stroke(Color.white.opacity(0.85), lineWidth: lineWidth)
-                .shadow(color: .white.opacity(0.8), radius: 4)
-                .shadow(color: .white.opacity(0.4), radius: 10)
-                .shadow(color: .white.opacity(0.15), radius: 20)
-        )
-    }
-
-    /// Card đen + viền trắng neon
+    /// Card đen + viền trắng neon (1 shadow nhẹ)
     func neonCard(cornerRadius: CGFloat = 20) -> some View {
         self
             .padding(18)
             .background(
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .fill(Color.black.opacity(0.72))
-                    .background(
-                        .ultraThinMaterial,
-                        in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    )
             )
             .overlay(
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .stroke(Color.white.opacity(0.9), lineWidth: 1.2)
-                    .shadow(color: .white.opacity(0.9), radius: 4)
-                    .shadow(color: .white.opacity(0.5), radius: 12)
-                    .shadow(color: .white.opacity(0.2), radius: 22)
+                    .shadow(color: .white.opacity(0.7), radius: 6)
             )
-            .shadow(color: .black.opacity(0.6), radius: 15, y: 8)
     }
 }
 
@@ -120,7 +101,7 @@ struct ContentView: View {
         .imageScale(.small)
     }
 
-    // MARK: TAB BAR — NEON WHITE
+    // MARK: TAB BAR (ĐEN + VIỀN TRẮNG NEON)
     private var floatingTabBar: some View {
         HStack(spacing: 6) {
             tabButton(icon: "house.fill", title: "Trang chủ", tag: AppSection.home.rawValue)
@@ -130,16 +111,12 @@ struct ContentView: View {
         .padding(.vertical, 8)
         .background(
             Capsule()
-                .fill(Color.black.opacity(0.85))
-                .background(.ultraThinMaterial, in: Capsule())
+                .fill(Color.black.opacity(0.88))
                 .overlay(
                     Capsule()
                         .stroke(Color.white.opacity(0.9), lineWidth: 1.2)
-                        .shadow(color: .white.opacity(0.9), radius: 5)
-                        .shadow(color: .white.opacity(0.5), radius: 14)
-                        .shadow(color: .white.opacity(0.2), radius: 24)
+                        .shadow(color: .white.opacity(0.7), radius: 8)
                 )
-                .shadow(color: .black.opacity(0.8), radius: 20, y: 8)
         )
     }
 
@@ -171,8 +148,6 @@ struct ContentView: View {
                         Capsule()
                             .fill(Color.white)
                             .matchedGeometryEffect(id: "TAB_BG", in: tabAnimation)
-                            .shadow(color: .white.opacity(0.8), radius: 8)
-                            .shadow(color: .white.opacity(0.4), radius: 16)
                     }
                 }
             )
@@ -201,9 +176,6 @@ private struct DashboardView: View {
         return formatter
     }()
 
-    @State private var isBreathing = false
-    @State private var ringRotation: Double = 0
-
     var body: some View {
         NavigationStack {
             ScrollView(showsIndicators: false) {
@@ -228,88 +200,64 @@ private struct DashboardView: View {
                         Image(systemName: "gearshape.fill")
                             .font(.system(size: 18, weight: .semibold))
                             .foregroundColor(.white)
-                            .shadow(color: .white.opacity(0.9), radius: 6)
+                            .shadow(color: .white.opacity(0.8), radius: 5)
                     }
                 }
             }
             .sheet(isPresented: $showSettings) {
                 SettingsView().environmentObject(appState)
             }
-            .onAppear {
-                withAnimation(.easeInOut(duration: 3.0).repeatForever(autoreverses: true)) {
-                    isBreathing = true
-                }
-                withAnimation(.linear(duration: 6).repeatForever(autoreverses: false)) {
-                    ringRotation = 360
-                }
-            }
         }
     }
 
-    // MARK: 1. HERO — AVATAR NEON TRẮNG
+    // MARK: 1. HERO — AVATAR NEON TRẮNG (TĨNH, NHẸ)
     private var heroSection: some View {
         VStack(spacing: 14) {
             ZStack {
-                // Glow trắng neon nhiều lớp (breathing)
+                // Glow tĩnh 1 lớp
                 Circle()
-                    .fill(Color.white.opacity(0.4))
-                    .frame(width: 130, height: 130)
-                    .blur(radius: 30)
-                    .scaleEffect(isBreathing ? 1.15 : 0.88)
-                    .opacity(isBreathing ? 1.0 : 0.5)
-
-                Circle()
-                    .fill(Color.white.opacity(0.25))
-                    .frame(width: 110, height: 110)
+                    .fill(Color.white.opacity(0.18))
+                    .frame(width: 118, height: 118)
                     .blur(radius: 18)
-                    .scaleEffect(isBreathing ? 1.1 : 0.92)
 
-                // Vòng viền trắng NEON xoay nhẹ
+                // Viền trắng neon 1 shadow
                 Circle()
                     .stroke(Color.white.opacity(0.9), lineWidth: 2)
-                    .frame(width: 108, height: 108)
-                    .shadow(color: .white.opacity(1.0), radius: 6)
-                    .shadow(color: .white.opacity(0.6), radius: 16)
-                    .shadow(color: .white.opacity(0.3), radius: 28)
+                    .frame(width: 106, height: 106)
+                    .shadow(color: .white.opacity(0.8), radius: 8)
 
-                // Vòng viền ngoài mảnh (gạch đứt)
+                // Viền ngoài mờ
                 Circle()
-                    .stroke(
-                        Color.white.opacity(0.4),
-                        style: StrokeStyle(lineWidth: 1, dash: [3, 6])
-                    )
-                    .frame(width: 124, height: 124)
-                    .rotationEffect(.degrees(ringRotation))
-                    .shadow(color: .white.opacity(0.5), radius: 8)
+                    .stroke(Color.white.opacity(0.2), lineWidth: 1)
+                    .frame(width: 118, height: 118)
 
-                // Ảnh Avatar
+                // Avatar
                 CachedRemoteImage(url: catalogStore.catalog.brandAvatarURL.flatMap(URL.init(string:))) {
-                    AppLogo(size: 92)
+                    AppLogo(size: 90)
                 }
                 .scaledToFill()
-                .frame(width: 92, height: 92)
+                .frame(width: 90, height: 90)
                 .clipShape(Circle())
                 .overlay(
                     Circle()
-                        .stroke(Color.white.opacity(0.9), lineWidth: 1.5)
-                        .shadow(color: .white.opacity(0.9), radius: 5)
+                        .stroke(Color.white.opacity(0.5), lineWidth: 1)
+                        .shadow(color: .white.opacity(0.6), radius: 4)
                 )
             }
-            .frame(height: 145)
+            .frame(height: 140)
 
             VStack(spacing: 6) {
                 Text(catalogStore.catalog.brandTitle ?? "Sovereign Solitude")
                     .font(.system(size: 26, weight: .bold, design: .serif))
                     .tracking(1.5)
                     .foregroundColor(.white)
-                    .shadow(color: .white.opacity(0.8), radius: 6)
-                    .shadow(color: .white.opacity(0.4), radius: 14)
+                    .shadow(color: .white.opacity(0.7), radius: 6)
 
                 HStack(spacing: 6) {
                     Circle()
                         .fill(Color.white)
                         .frame(width: 5, height: 5)
-                        .shadow(color: .white, radius: 4)
+                        .shadow(color: .white, radius: 3)
                     Text(catalogStore.catalog.brandSubtitle ?? language.text("dashboard.tagline"))
                         .font(.system(size: 12, weight: .medium))
                         .foregroundColor(.white.opacity(0.75))
@@ -330,7 +278,6 @@ private struct DashboardView: View {
                     Image(systemName: "hourglass")
                         .font(.system(size: 11, weight: .bold))
                         .foregroundColor(.white.opacity(0.7))
-                        .shadow(color: .white.opacity(0.6), radius: 3)
                     Text("LICENSE")
                         .font(.system(size: 10, weight: .black, design: .monospaced))
                         .foregroundColor(.white.opacity(0.6))
@@ -338,10 +285,7 @@ private struct DashboardView: View {
                     Spacer()
                     if remainingTime != "Hết Hạn" {
                         HStack(spacing: 5) {
-                            Circle()
-                                .fill(Color.white)
-                                .frame(width: 5, height: 5)
-                                .shadow(color: .white, radius: 4)
+                            Circle().fill(Color.white).frame(width: 5, height: 5)
                             Text("ACTIVE")
                                 .font(.system(size: 9, weight: .bold, design: .monospaced))
                                 .foregroundColor(.white)
@@ -351,7 +295,6 @@ private struct DashboardView: View {
                         Text("EXPIRED")
                             .font(.system(size: 9, weight: .bold, design: .monospaced))
                             .foregroundColor(.red)
-                            .shadow(color: .red.opacity(0.8), radius: 4)
                             .tracking(1)
                     }
                 }
@@ -364,7 +307,7 @@ private struct DashboardView: View {
                         Text(remainingTime)
                             .font(.system(size: 24, weight: .black, design: .monospaced))
                             .foregroundColor(remainingTime == "Hết Hạn" ? .red : .white)
-                            .shadow(color: remainingTime == "Hết Hạn" ? .red.opacity(0.8) : .white.opacity(0.7), radius: 5)
+                            .shadow(color: remainingTime == "Hết Hạn" ? .red.opacity(0.7) : .white.opacity(0.5), radius: 4)
                     }
 
                     Spacer()
@@ -394,8 +337,7 @@ private struct DashboardView: View {
                         .overlay(
                             RoundedRectangle(cornerRadius: 14, style: .continuous)
                                 .stroke(Color.white.opacity(0.9), lineWidth: 1.2)
-                                .shadow(color: .white.opacity(0.9), radius: 5)
-                                .shadow(color: .white.opacity(0.5), radius: 12)
+                                .shadow(color: .white.opacity(0.7), radius: 5)
                         )
                     }
                     .buttonStyle(ClassicScaleButtonStyle())
@@ -424,7 +366,6 @@ private struct DashboardView: View {
                 Image(systemName: "iphone")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundColor(.white)
-                    .shadow(color: .white.opacity(0.8), radius: 4)
                 Text("THIẾT BỊ")
                     .font(.system(size: 11, weight: .black, design: .monospaced))
                     .foregroundColor(.white.opacity(0.85))
@@ -456,7 +397,6 @@ private struct DashboardView: View {
             Text(value)
                 .font(.system(size: 13, weight: .bold))
                 .foregroundColor(valueColor)
-                .shadow(color: valueColor.opacity(0.5), radius: 3)
                 .lineLimit(1)
         }
     }
@@ -468,7 +408,6 @@ private struct DashboardView: View {
                 Image(systemName: "link")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundColor(.white)
-                    .shadow(color: .white.opacity(0.8), radius: 4)
                 Text("LIÊN KẾT")
                     .font(.system(size: 11, weight: .black, design: .monospaced))
                     .foregroundColor(.white.opacity(0.85))
@@ -485,7 +424,6 @@ private struct DashboardView: View {
                             Image(systemName: "arrow.up.right")
                                 .font(.system(size: 10, weight: .bold))
                                 .foregroundColor(.white.opacity(0.7))
-                                .shadow(color: .white.opacity(0.6), radius: 3)
                             Text(link.name)
                                 .font(.system(size: 12, weight: .semibold))
                                 .foregroundColor(.white.opacity(0.95))
@@ -499,8 +437,6 @@ private struct DashboardView: View {
                         .overlay(
                             RoundedRectangle(cornerRadius: 10, style: .continuous)
                                 .stroke(Color.white.opacity(0.7), lineWidth: 1)
-                                .shadow(color: .white.opacity(0.6), radius: 3)
-                                .shadow(color: .white.opacity(0.3), radius: 8)
                         )
                     }
                     .buttonStyle(ClassicScaleButtonStyle())
@@ -513,7 +449,7 @@ private struct DashboardView: View {
 }
 
 // ==========================================================
-// MARK: - NOTICE POPUP (NEON WHITE)
+// MARK: - NOTICE POPUP
 // ==========================================================
 struct NoticeBannerView: View {
     let onDismiss: () -> Void
@@ -535,18 +471,15 @@ struct NoticeBannerView: View {
             VStack(spacing: 20) {
                 VStack(spacing: 14) {
                     ZStack {
-                        // Neon glow
                         Circle()
-                            .fill(Color.white.opacity(0.25))
-                            .frame(width: 110, height: 110)
-                            .blur(radius: 22)
+                            .fill(Color.white.opacity(0.2))
+                            .frame(width: 100, height: 100)
+                            .blur(radius: 18)
 
                         Circle()
                             .stroke(Color.white.opacity(0.9), lineWidth: 2)
                             .frame(width: 88, height: 88)
-                            .shadow(color: .white.opacity(1.0), radius: 6)
-                            .shadow(color: .white.opacity(0.6), radius: 14)
-                            .shadow(color: .white.opacity(0.3), radius: 24)
+                            .shadow(color: .white.opacity(0.8), radius: 8)
 
                         SecureRemoteImage(
                             urlString: authManager.publicAvatarURL,
@@ -554,25 +487,20 @@ struct NoticeBannerView: View {
                         )
                         .frame(width: 76, height: 76)
                         .clipShape(Circle())
-                        .overlay(
-                            Circle()
-                                .stroke(Color.white.opacity(0.6), lineWidth: 1)
-                                .shadow(color: .white.opacity(0.8), radius: 4)
-                        )
+                        .overlay(Circle().stroke(Color.white.opacity(0.5), lineWidth: 1))
                     }
 
                     Text("Sovereign Solitude")
                         .font(.system(size: 22, weight: .bold, design: .serif))
                         .foregroundColor(.white)
                         .tracking(1.5)
-                        .shadow(color: .white.opacity(0.8), radius: 6)
-                        .shadow(color: .white.opacity(0.4), radius: 14)
+                        .shadow(color: .white.opacity(0.7), radius: 6)
 
                     HStack(spacing: 6) {
                         Circle()
                             .fill(Color.white)
                             .frame(width: 5, height: 5)
-                            .shadow(color: .white, radius: 4)
+                            .shadow(color: .white, radius: 3)
                         Text("THÔNG BÁO")
                             .font(.system(size: 10, weight: .bold, design: .monospaced))
                             .foregroundColor(.white.opacity(0.7))
@@ -598,7 +526,6 @@ struct NoticeBannerView: View {
                         .overlay(
                             RoundedRectangle(cornerRadius: 14)
                                 .stroke(Color.white.opacity(0.3), lineWidth: 1)
-                                .shadow(color: .white.opacity(0.4), radius: 4)
                         )
                 )
 
@@ -615,8 +542,6 @@ struct NoticeBannerView: View {
                             .frame(height: 50)
                             .background(Color.white)
                             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                            .shadow(color: .white.opacity(0.9), radius: 8)
-                            .shadow(color: .white.opacity(0.4), radius: 18)
                     }
 
                     Button {
@@ -637,9 +562,7 @@ struct NoticeBannerView: View {
                         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                         .overlay(
                             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                .stroke(Color.white.opacity(0.7), lineWidth: 1)
-                                .shadow(color: .white.opacity(0.5), radius: 4)
-                                .shadow(color: .white.opacity(0.25), radius: 10)
+                                .stroke(Color.white.opacity(0.6), lineWidth: 1)
                         )
                     }
                 }
@@ -652,12 +575,9 @@ struct NoticeBannerView: View {
                     .overlay(
                         RoundedRectangle(cornerRadius: 26, style: .continuous)
                             .stroke(Color.white.opacity(0.9), lineWidth: 1.3)
-                            .shadow(color: .white.opacity(0.9), radius: 6)
-                            .shadow(color: .white.opacity(0.5), radius: 16)
-                            .shadow(color: .white.opacity(0.2), radius: 30)
+                            .shadow(color: .white.opacity(0.7), radius: 10)
                     )
             )
-            .shadow(color: .black.opacity(0.9), radius: 30, y: 15)
             .padding(.horizontal, 24)
             .scaleEffect(showContent ? 1 : 0.85)
             .opacity(showContent ? 1 : 0)
