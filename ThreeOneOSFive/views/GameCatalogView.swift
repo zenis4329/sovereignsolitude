@@ -2,17 +2,50 @@ import SwiftUI
 import UIKit
 import AudioToolbox
 
-// MARK: - HAPTICS
+// MARK: - HAPTICS + ÂM THANH MỚI
 final class iPhoneHaptics {
     static let shared = iPhoneHaptics()
     private let rigid = UIImpactFeedbackGenerator(style: .rigid)
     private let light = UIImpactFeedbackGenerator(style: .light)
     private let heavy = UIImpactFeedbackGenerator(style: .heavy)
-    private init() { rigid.prepare(); light.prepare(); heavy.prepare() }
-    func playTickOn()  { AudioServicesPlaySystemSound(1057); rigid.impactOccurred(intensity: 1.0); rigid.prepare() }
-    func playTickOff() { AudioServicesPlaySystemSound(1104); light.impactOccurred(intensity: 0.75); light.prepare() }
-    func playTap()     { AudioServicesPlaySystemSound(1104); light.impactOccurred(intensity: 0.55); light.prepare() }
-    func playLaunch()  { AudioServicesPlaySystemSound(1057); heavy.impactOccurred(intensity: 1.0); heavy.prepare() }
+    private let soft = UIImpactFeedbackGenerator(style: .soft)
+    private init() { rigid.prepare(); light.prepare(); heavy.prepare(); soft.prepare() }
+
+    /// Tiếng "POP" hiện đại + 2 lớp rung (cực đã tai) khi BẬT
+    func playTickOn() {
+        AudioServicesPlaySystemSound(1520)          // Modern pop iOS
+        rigid.impactOccurred(intensity: 1.0)
+        rigid.prepare()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.055) {
+            self.soft.impactOccurred(intensity: 0.65)
+            self.soft.prepare()
+        }
+    }
+
+    /// Tiếng "tắc" nhẹ khi TẮT
+    func playTickOff() {
+        AudioServicesPlaySystemSound(1104)
+        light.impactOccurred(intensity: 0.7)
+        light.prepare()
+    }
+
+    /// Tap chuyển màn
+    func playTap() {
+        AudioServicesPlaySystemSound(1103)
+        light.impactOccurred(intensity: 0.5)
+        light.prepare()
+    }
+
+    /// Khởi động game — âm 3D pop trầm ấn tượng
+    func playLaunch() {
+        AudioServicesPlaySystemSound(1306)
+        heavy.impactOccurred(intensity: 1.0)
+        heavy.prepare()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.09) {
+            self.rigid.impactOccurred(intensity: 0.85)
+            self.rigid.prepare()
+        }
+    }
 }
 
 // MARK: - IMAGE CACHE
@@ -31,7 +64,7 @@ struct SecureCatalogImage: View {
             Color.white.opacity(0.05)
             if let image = image {
                 Image(uiImage: image).resizable().scaledToFill()
-                    .transition(.opacity.animation(.easeOut(duration: 0.2)))
+                    .transition(.opacity.animation(.easeOut(duration: 0.25)))
             } else {
                 placeholder.resizable().scaledToFit().padding(7)
                     .foregroundColor(.white.opacity(0.35))
@@ -64,36 +97,143 @@ struct SecureCatalogImage: View {
     }
 }
 
-// MARK: - BACKGROUND
-private struct ModernBackground: View {
-    let urlString: String
+// ==========================================================
+// MARK: - BACKGROUND SIÊU ĐẸP (MƯA HẠT + ORB PHÁT SÁNG)
+// ==========================================================
+struct FallingParticles: View {
+    var count: Int = 32
+    struct P: Identifiable {
+        let id = UUID()
+        let xRatio: CGFloat
+        let startOffset: Double
+        let speed: Double
+        let size: CGFloat
+        let opacity: Double
+        let sway: Double
+        let color: Color
+    }
+    @State private var particles: [P] = []
+
     var body: some View {
         GeometryReader { geo in
-            ZStack {
-                Color(red: 0.04, green: 0.045, blue: 0.07)
-                SecureCatalogImage(urlString: urlString, placeholder: Image(systemName: "sparkles"))
-                    .frame(width: geo.size.width, height: geo.size.height)
-                    .opacity(0.28)
-                LinearGradient(
-                    colors: [Color.black.opacity(0.55), Color(red: 0.04, green: 0.045, blue: 0.07).opacity(0.92), Color.black],
-                    startPoint: .top, endPoint: .bottom
-                )
-                Circle().fill(Color.cyan.opacity(0.14))
-                    .frame(width: 280, height: 280).blur(radius: 120)
-                    .offset(x: -150, y: -260)
-                Circle().fill(Color.purple.opacity(0.10))
-                    .frame(width: 240, height: 240).blur(radius: 120)
-                    .offset(x: 160, y: 380)
+            TimelineView(.animation) { timeline in
+                let t = timeline.date.timeIntervalSinceReferenceDate
+                Canvas { ctx, size in
+                    for p in particles {
+                        let travel = (p.startOffset + t * p.speed)
+                            .truncatingRemainder(dividingBy: Double(size.height) + 40) - 20
+                        let sway = sin(t * 0.55 + p.sway) * 7
+                        let x = p.xRatio * size.width + CGFloat(sway)
+                        let rect = CGRect(x: x, y: CGFloat(travel), width: p.size, height: p.size)
+                        ctx.fill(Ellipse().path(in: rect), with: .color(p.color.opacity(p.opacity)))
+                    }
+                }
             }
-        }.ignoresSafeArea()
+            .onAppear {
+                particles = (0..<count).map { _ in
+                    P(
+                        xRatio: .random(in: 0...1),
+                        startOffset: .random(in: 0...Double(geo.size.height)),
+                        speed: .random(in: 10...28),
+                        size: .random(in: 1.2...3.8),
+                        opacity: .random(in: 0.28...0.78),
+                        sway: .random(in: 0...6.28),
+                        color: [Color.cyan, Color.white, Color(red: 0.5, green: 0.88, blue: 1.0)].randomElement() ?? .cyan
+                    )
+                }
+            }
+        }
+        .allowsHitTesting(false)
     }
 }
 
+struct PulsingOrb: View {
+    let color: Color
+    let size: CGFloat
+    let xOffset: CGFloat
+    let yOffset: CGFloat
+    let duration: Double
+    @State private var pulse = false
+
+    var body: some View {
+        Circle()
+            .fill(color.opacity(0.16))
+            .frame(width: size, height: size)
+            .blur(radius: 110)
+            .scaleEffect(pulse ? 1.18 : 0.9)
+            .opacity(pulse ? 0.95 : 0.55)
+            .offset(x: xOffset, y: yOffset)
+            .animation(.easeInOut(duration: duration).repeatForever(autoreverses: true), value: pulse)
+            .onAppear { pulse = true }
+            .allowsHitTesting(false)
+    }
+}
+
+struct ModernBackground: View {
+    let urlString: String
+    var particleCount: Int = 32
+
+    var body: some View {
+        GeometryReader { geo in
+            ZStack {
+                Color(red: 0.035, green: 0.04, blue: 0.065)
+
+                SecureCatalogImage(urlString: urlString, placeholder: Image(systemName: "sparkles"))
+                    .frame(width: geo.size.width, height: geo.size.height)
+                    .opacity(0.26)
+
+                LinearGradient(
+                    colors: [
+                        Color.black.opacity(0.55),
+                        Color(red: 0.035, green: 0.04, blue: 0.065).opacity(0.92),
+                        Color.black.opacity(0.98)
+                    ],
+                    startPoint: .top, endPoint: .bottom
+                )
+
+                PulsingOrb(color: .cyan,   size: 300, xOffset: -150, yOffset: -260, duration: 4.5)
+                PulsingOrb(color: .purple, size: 260, xOffset:  170, yOffset:  400, duration: 5.5)
+                PulsingOrb(color: .blue,   size: 200, xOffset:  190, yOffset: -140, duration: 6.0)
+
+                FallingParticles(count: particleCount)
+                    .opacity(0.9)
+            }
+        }
+        .ignoresSafeArea()
+    }
+}
+
+// ==========================================================
+// MARK: - SPARKLE BURST (bùng nổ khi BẬT mod)
+// ==========================================================
+struct SparkleBurst: View {
+    let trigger: Bool
+    var body: some View {
+        ZStack {
+            ForEach(0..<8) { i in
+                let angle = Double(i) * .pi / 4
+                Circle()
+                    .fill(Color.cyan)
+                    .frame(width: 5, height: 5)
+                    .offset(
+                        x: trigger ? CGFloat(cos(angle)) * 34 : 0,
+                        y: trigger ? CGFloat(sin(angle)) * 34 : 0
+                    )
+                    .opacity(trigger ? 0 : 1)
+                    .scaleEffect(trigger ? 1.8 : 0.3)
+            }
+        }
+        .allowsHitTesting(false)
+    }
+}
+
+// ==========================================================
 // MARK: - BUTTON STYLE
+// ==========================================================
 struct ClassicScaleButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .scaleEffect(configuration.isPressed ? 0.97 : 1.0)
+            .scaleEffect(configuration.isPressed ? 0.965 : 1.0)
             .animation(.spring(response: 0.22, dampingFraction: 0.72), value: configuration.isPressed)
     }
 }
@@ -106,6 +246,7 @@ struct GameCatalogView: View {
     @StateObject private var authManager = CustomAuthManager.shared
     @Binding var isTabBarHidden: Bool
     @State private var isRotating = false
+    @State private var glowPulse = false
 
     private var isSessionActive: Bool {
         authManager.isAuthorized && !authManager.isInteractionLocked && !store.catalog.resolvedMaintenanceEnabled
@@ -120,9 +261,9 @@ struct GameCatalogView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                ModernBackground(urlString: authManager.publicBackgroundURL)
+                ModernBackground(urlString: authManager.publicBackgroundURL, particleCount: 36)
                 ScrollView(showsIndicators: false) {
-                    VStack(spacing: 14) {
+                    VStack(spacing: 16) {
                         profileCard
                         gamesSection
                     }
@@ -134,6 +275,7 @@ struct GameCatalogView: View {
             .toolbar(.hidden, for: .navigationBar)
             .onAppear {
                 isRotating = true
+                glowPulse = true
                 store.rememberCatalogItems()
                 if !authManager.isAuthorized || store.catalog.resolvedMaintenanceEnabled {
                     store.disableAllEnabledMods()
@@ -145,97 +287,146 @@ struct GameCatalogView: View {
         }
     }
 
-    // MARK: PROFILE CARD (gọn, gộp stats)
+    // MARK: PROFILE CARD
     private var profileCard: some View {
-        HStack(spacing: 12) {
-            ZStack {
-                Circle().fill(Color.cyan.opacity(0.22)).frame(width: 68, height: 68).blur(radius: 14)
-                Circle()
-                    .stroke(AngularGradient(colors: [.cyan, .white, .blue, .cyan], center: .center), lineWidth: 2)
-                    .frame(width: 58, height: 58)
-                    .rotationEffect(.degrees(isRotating ? 360 : 0))
-                    .animation(.linear(duration: 4.5).repeatForever(autoreverses: false), value: isRotating)
-                    .drawingGroup()
-                SecureCatalogImage(urlString: authManager.publicAvatarURL, placeholder: Image(systemName: "person.crop.circle.fill"))
-                    .frame(width: 50, height: 50).clipShape(Circle())
-            }
+        VStack(spacing: 0) {
+            HStack(spacing: 13) {
+                ZStack {
+                    Circle()
+                        .fill(Color.cyan.opacity(0.3))
+                        .frame(width: 78, height: 78)
+                        .blur(radius: 22)
+                        .scaleEffect(glowPulse ? 1.15 : 0.9)
+                        .opacity(glowPulse ? 0.9 : 0.5)
+                        .animation(.easeInOut(duration: 2.4).repeatForever(autoreverses: true), value: glowPulse)
 
-            VStack(alignment: .leading, spacing: 3) {
-                Text(authManager.publicAppName.isEmpty ? "Sovereign Solitude" : authManager.publicAppName)
-                    .font(.system(size: 17, weight: .black, design: .rounded))
-                    .foregroundColor(.white).lineLimit(1)
-                HStack(spacing: 6) {
-                    HStack(spacing: 4) {
-                        Circle().fill(Color.green).frame(width: 5, height: 5)
-                        Text("Online").font(.system(size: 10, weight: .semibold)).foregroundColor(.white.opacity(0.55))
-                    }
-                    Text("•").foregroundColor(.white.opacity(0.3))
-                    Text("\(store.catalog.orderedGames.count) game · \(totalFeatures) mod")
-                        .font(.system(size: 10.5, weight: .medium)).foregroundColor(.white.opacity(0.55))
+                    Circle()
+                        .stroke(
+                            AngularGradient(colors: [.cyan, .white, .blue, .cyan], center: .center),
+                            lineWidth: 2.4
+                        )
+                        .frame(width: 64, height: 64)
+                        .rotationEffect(.degrees(isRotating ? 360 : 0))
+                        .animation(.linear(duration: 4.5).repeatForever(autoreverses: false), value: isRotating)
+                        .drawingGroup()
+
+                    SecureCatalogImage(urlString: authManager.publicAvatarURL, placeholder: Image(systemName: "person.crop.circle.fill"))
+                        .frame(width: 54, height: 54)
+                        .clipShape(Circle())
+                        .overlay(Circle().strokeBorder(Color.white.opacity(0.25), lineWidth: 1))
                 }
+
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(authManager.publicAppName.isEmpty ? "Sovereign Solitude" : authManager.publicAppName)
+                        .font(.system(size: 18, weight: .black, design: .rounded))
+                        .foregroundColor(.white)
+                        .lineLimit(1)
+                        .shadow(color: .cyan.opacity(0.35), radius: 5)
+
+                    HStack(spacing: 5) {
+                        Circle()
+                            .fill(Color.green)
+                            .frame(width: 6, height: 6)
+                            .shadow(color: .green.opacity(0.8), radius: 4)
+                        Text("Online")
+                            .font(.system(size: 10.5, weight: .semibold))
+                            .foregroundColor(.white.opacity(0.6))
+                    }
+
+                    HStack(spacing: 6) {
+                        inlineStat(icon: "gamecontroller.fill", value: "\(store.catalog.orderedGames.count)", tint: .cyan)
+                        inlineStat(icon: "bolt.fill", value: "\(totalFeatures)", tint: .orange)
+                        if totalEnabled > 0 {
+                            inlineStat(icon: "checkmark.seal.fill", value: "\(totalEnabled)", tint: .green)
+                        }
+                    }
+                }
+
+                Spacer(minLength: 4)
+
                 if totalEnabled > 0 {
-                    Text("Đang bật \(totalEnabled) mod")
-                        .font(.system(size: 10.5, weight: .bold)).foregroundColor(.cyan)
-                }
-            }
-            Spacer(minLength: 4)
-
-            if totalEnabled > 0 {
-                Button {
-                    iPhoneHaptics.shared.playTickOff()
-                    withAnimation(.spring(response: 0.26, dampingFraction: 0.8)) { store.disableAllEnabledMods() }
-                } label: {
-                    VStack(spacing: 2) {
-                        Image(systemName: "power").font(.system(size: 13, weight: .black))
-                        Text("Tắt").font(.system(size: 9, weight: .black))
+                    Button {
+                        iPhoneHaptics.shared.playTickOff()
+                        withAnimation(.spring(response: 0.26, dampingFraction: 0.8)) { store.disableAllEnabledMods() }
+                    } label: {
+                        VStack(spacing: 2) {
+                            Image(systemName: "power").font(.system(size: 13, weight: .black))
+                            Text("Tắt hết").font(.system(size: 8.5, weight: .black))
+                        }
+                        .foregroundColor(.black)
+                        .frame(width: 46, height: 46)
+                        .background(
+                            LinearGradient(
+                                colors: [Color(red: 0.3, green: 0.95, blue: 1), .cyan],
+                                startPoint: .topLeading, endPoint: .bottomTrailing
+                            )
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+                        .shadow(color: .cyan.opacity(0.5), radius: 8)
                     }
-                    .foregroundColor(.black)
-                    .frame(width: 44, height: 44)
-                    .background(LinearGradient(colors: [Color(red: 0.3, green: 0.95, blue: 1), .cyan], startPoint: .topLeading, endPoint: .bottomTrailing))
-                    .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
-                    .shadow(color: .cyan.opacity(0.4), radius: 7)
+                    .buttonStyle(ClassicScaleButtonStyle())
                 }
-                .buttonStyle(ClassicScaleButtonStyle())
             }
+            .padding(14)
         }
-        .padding(12)
-        .background(RoundedRectangle(cornerRadius: 20, style: .continuous).fill(Color.white.opacity(0.055)))
+        .background(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .fill(Color.white.opacity(0.055))
+        )
         .overlay(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
                 .strokeBorder(
-                    LinearGradient(colors: [Color.cyan.opacity(0.35), Color.white.opacity(0.06)], startPoint: .topLeading, endPoint: .bottomTrailing),
-                    lineWidth: 1
+                    LinearGradient(
+                        colors: [Color.cyan.opacity(0.45), Color.purple.opacity(0.2), Color.white.opacity(0.06)],
+                        startPoint: .topLeading, endPoint: .bottomTrailing
+                    ),
+                    lineWidth: 1.2
                 )
         )
+        .shadow(color: .cyan.opacity(0.14), radius: 16, y: 4)
         .padding(.horizontal, 16)
         .padding(.top, 10)
     }
 
-    // MARK: GAMES SECTION
+    private func inlineStat(icon: String, value: String, tint: Color) -> some View {
+        HStack(spacing: 3) {
+            Image(systemName: icon).font(.system(size: 8.5, weight: .bold)).foregroundColor(tint)
+            Text(value).font(.system(size: 10.5, weight: .bold, design: .rounded)).foregroundColor(.white)
+        }
+        .padding(.horizontal, 7).padding(.vertical, 2.5)
+        .background(Color.white.opacity(0.07))
+        .clipShape(Capsule())
+    }
+
+    // MARK: GAMES
     private var gamesSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 6) {
-                Image(systemName: "square.grid.2x2.fill").font(.system(size: 10, weight: .black)).foregroundColor(.cyan)
-                Text("TRÒ CHƠI").font(.system(size: 10.5, weight: .black, design: .rounded)).foregroundColor(.white.opacity(0.55)).tracking(1)
+            HStack(spacing: 7) {
+                Image(systemName: "square.grid.2x2.fill")
+                    .font(.system(size: 10, weight: .black)).foregroundColor(.cyan)
+                Text("DANH SÁCH TRÒ CHƠI")
+                    .font(.system(size: 10.5, weight: .black, design: .rounded))
+                    .foregroundColor(.white.opacity(0.55)).tracking(1.2)
                 Spacer()
                 Text("\(store.catalog.orderedGames.count)")
                     .font(.system(size: 10, weight: .black))
                     .foregroundColor(.black)
-                    .padding(.horizontal, 7).padding(.vertical, 2)
+                    .padding(.horizontal, 8).padding(.vertical, 2.5)
                     .background(Color.cyan).clipShape(Capsule())
             }
             .padding(.horizontal, 20)
 
             if store.catalog.orderedGames.isEmpty {
-                VStack(spacing: 10) {
-                    Image(systemName: "gamecontroller").font(.system(size: 28, weight: .light)).foregroundColor(.white.opacity(0.3))
-                    Text("Chưa có trò chơi nào").font(.system(size: 13, weight: .semibold)).foregroundColor(.white.opacity(0.55))
+                VStack(spacing: 12) {
+                    Image(systemName: "gamecontroller").font(.system(size: 32, weight: .ultraLight)).foregroundColor(.white.opacity(0.28))
+                    Text("Chưa có trò chơi nào").font(.system(size: 13.5, weight: .semibold)).foregroundColor(.white.opacity(0.55))
                 }
-                .frame(maxWidth: .infinity).padding(.vertical, 40)
-                .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Color.white.opacity(0.04)))
+                .frame(maxWidth: .infinity).padding(.vertical, 44)
+                .background(RoundedRectangle(cornerRadius: 20, style: .continuous).fill(Color.white.opacity(0.04)))
+                .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(Color.white.opacity(0.07), lineWidth: 1))
                 .padding(.horizontal, 16)
             } else {
-                VStack(spacing: 8) {
+                VStack(spacing: 9) {
                     ForEach(store.catalog.orderedGames) { game in
                         NavigationLink(destination: GameDetailView(gameID: game.id, isTabBarHidden: $isTabBarHidden)) {
                             ModernGameRow(game: game)
@@ -259,6 +450,8 @@ struct GameCatalogView: View {
 private struct ModernGameRow: View {
     let game: GameCatalogGame
     @StateObject private var store = GameCatalogStore.shared
+    @State private var shimmer: CGFloat = -1
+    @State private var pulseGlow = false
 
     private var total: Int { game.items.filter { $0.hidden != true }.count }
     private var active: Int { game.items.filter { $0.hidden != true && store.isMultiItemOn(item: $0) }.count }
@@ -268,8 +461,12 @@ private struct ModernGameRow: View {
         HStack(spacing: 12) {
             ZStack {
                 if active > 0 {
-                    RoundedRectangle(cornerRadius: 14).fill(Color.cyan.opacity(0.25))
-                        .frame(width: 52, height: 52).blur(radius: 8)
+                    RoundedRectangle(cornerRadius: 15)
+                        .fill(Color.cyan.opacity(0.28))
+                        .frame(width: 54, height: 54)
+                        .blur(radius: 10)
+                        .scaleEffect(pulseGlow ? 1.1 : 0.95)
+                        .animation(.easeInOut(duration: 1.8).repeatForever(autoreverses: true), value: pulseGlow)
                 }
                 SecureCatalogImage(urlString: game.iconURL ?? "", placeholder: Image(systemName: "gamecontroller.fill"))
                     .frame(width: 50, height: 50)
@@ -277,58 +474,98 @@ private struct ModernGameRow: View {
                     .overlay(
                         RoundedRectangle(cornerRadius: 14, style: .continuous)
                             .strokeBorder(
-                                active > 0 ? LinearGradient(colors: [.cyan, .white.opacity(0.4)], startPoint: .topLeading, endPoint: .bottomTrailing)
-                                            : LinearGradient(colors: [Color.white.opacity(0.15), Color.white.opacity(0.04)], startPoint: .topLeading, endPoint: .bottomTrailing),
-                                lineWidth: 1.2
+                                active > 0
+                                ? LinearGradient(colors: [.cyan, .white.opacity(0.5)], startPoint: .topLeading, endPoint: .bottomTrailing)
+                                : LinearGradient(colors: [Color.white.opacity(0.15), Color.white.opacity(0.04)], startPoint: .topLeading, endPoint: .bottomTrailing),
+                                lineWidth: active > 0 ? 1.4 : 1
                             )
                     )
             }
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
-                    Text(game.name).font(.system(size: 15, weight: .bold, design: .rounded)).foregroundColor(.white).lineLimit(1)
+                    Text(game.name)
+                        .font(.system(size: 15.5, weight: .bold, design: .rounded))
+                        .foregroundColor(.white).lineLimit(1)
                     if active > 0 {
                         Text("\(active)")
                             .font(.system(size: 9, weight: .black, design: .rounded))
                             .foregroundColor(.black)
                             .frame(width: 16, height: 16)
                             .background(Color.cyan).clipShape(Circle())
+                            .shadow(color: .cyan.opacity(0.6), radius: 4)
                     }
                 }
-                Text("\(total) mod\(active > 0 ? " · \(active) bật" : "")")
+                Text("\(total) mod\(active > 0 ? " · \(active) đang bật" : "")")
                     .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(active > 0 ? .cyan.opacity(0.85) : .white.opacity(0.45))
+                    .foregroundColor(active > 0 ? .cyan.opacity(0.9) : .white.opacity(0.45))
                 if active > 0 {
                     GeometryReader { g in
                         ZStack(alignment: .leading) {
                             Capsule().fill(Color.white.opacity(0.08))
-                            Capsule().fill(LinearGradient(colors: [.cyan, Color(red: 0.3, green: 0.9, blue: 1)], startPoint: .leading, endPoint: .trailing))
+                            Capsule()
+                                .fill(LinearGradient(colors: [.cyan, Color(red: 0.3, green: 0.9, blue: 1)], startPoint: .leading, endPoint: .trailing))
                                 .frame(width: g.size.width * progress)
+                                .shadow(color: .cyan.opacity(0.7), radius: 4)
                         }
                     }.frame(height: 3)
                 }
             }
             Spacer(minLength: 4)
             Image(systemName: "chevron.right")
-                .font(.system(size: 11, weight: .black)).foregroundColor(.black)
+                .font(.system(size: 12, weight: .black)).foregroundColor(.black)
                 .frame(width: 28, height: 28)
                 .background(LinearGradient(colors: [Color(red: 0.25, green: 0.92, blue: 1), .cyan], startPoint: .topLeading, endPoint: .bottomTrailing))
                 .clipShape(Circle())
+                .shadow(color: .cyan.opacity(0.5), radius: 5)
         }
         .padding(11)
-        .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color.white.opacity(0.045)))
+        .background(
+            ZStack {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(Color.white.opacity(active > 0 ? 0.065 : 0.045))
+
+                // Shimmer khi active
+                if active > 0 {
+                    GeometryReader { g in
+                        Rectangle()
+                            .fill(
+                                LinearGradient(
+                                    colors: [.clear, Color.cyan.opacity(0.25), .clear],
+                                    startPoint: .leading, endPoint: .trailing
+                                )
+                            )
+                            .frame(width: 80)
+                            .rotationEffect(.degrees(18))
+                            .offset(x: shimmer * g.size.width)
+                            .blur(radius: 2)
+                    }
+                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .allowsHitTesting(false)
+                }
+            }
+        )
         .overlay(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .strokeBorder(
-                    active > 0 ? Color.cyan.opacity(0.45) : Color.white.opacity(0.08),
-                    lineWidth: active > 0 ? 1.1 : 0.8
+                    active > 0
+                    ? LinearGradient(colors: [Color.cyan.opacity(0.7), Color.white.opacity(0.2)], startPoint: .topLeading, endPoint: .bottomTrailing)
+                    : LinearGradient(colors: [Color.white.opacity(0.08), Color.white.opacity(0.03)], startPoint: .topLeading, endPoint: .bottomTrailing),
+                    lineWidth: active > 0 ? 1.2 : 0.8
                 )
         )
+        .onAppear {
+            if active > 0 { pulseGlow = true }
+            withAnimation(.linear(duration: 2.6).repeatForever(autoreverses: false)) {
+                shimmer = 1.6
+            }
+        }
+        .onChange(of: active) { newVal in pulseGlow = newVal > 0 }
     }
 }
 
 // ==========================================================
-// MARK: - MÀN HÌNH CHI TIẾT (REDESIGN HOÀN TOÀN)
+// MARK: - MÀN HÌNH CHI TIẾT (KHÔNG CÒN Ô TÌM KIẾM)
 // ==========================================================
 private struct GameDetailView: View {
     let gameID: String
@@ -336,7 +573,6 @@ private struct GameDetailView: View {
     @StateObject private var store = GameCatalogStore.shared
     @StateObject private var authManager = CustomAuthManager.shared
     @State private var selectedTabID = "aim"
-    @State private var searchText = ""
     @State private var onlyActiveFilter = false
     @Environment(\.dismiss) private var dismiss
 
@@ -347,14 +583,9 @@ private struct GameDetailView: View {
     }
 
     private var items: [GameCatalogItem] {
-        let q = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return (game?.items ?? [])
+        (game?.items ?? [])
             .filter { $0.hidden != true && $0.category.rawValue == selectedTabID }
-            .filter { item in
-                if onlyActiveFilter && !store.isMultiItemOn(item: item) { return false }
-                if q.isEmpty { return true }
-                return item.name.lowercased().contains(q) || (item.subtitle ?? "").lowercased().contains(q)
-            }
+            .filter { item in !onlyActiveFilter || store.isMultiItemOn(item: item) }
             .sorted { ($0.order ?? Int.max) < ($1.order ?? Int.max) }
     }
 
@@ -370,16 +601,17 @@ private struct GameDetailView: View {
         return own.filter { selected.contains($0.id) }
     }
 
-    private var currentTab: GameCatalogTab? { availableTabs.first(where: { $0.id == selectedTabID }) ?? availableTabs.first }
+    private var currentTab: GameCatalogTab? {
+        availableTabs.first(where: { $0.id == selectedTabID }) ?? availableTabs.first
+    }
     private var currentCount: Int {
         (game?.items ?? []).filter { $0.hidden != true && $0.category.rawValue == selectedTabID }.count
     }
 
     var body: some View {
         ZStack {
-            ModernBackground(urlString: authManager.publicBackgroundURL)
-
-            VStack(spacing: 10) {
+            ModernBackground(urlString: authManager.publicBackgroundURL, particleCount: 22)
+            VStack(spacing: 12) {
                 headerSection
                 categoryBar
                 modList
@@ -421,16 +653,22 @@ private struct GameDetailView: View {
                 Image(systemName: "chevron.left")
                     .font(.system(size: 15, weight: .bold)).foregroundColor(.white)
                     .frame(width: 36, height: 36)
-                    .background(Color.white.opacity(0.08)).clipShape(Circle())
-                    .overlay(Circle().strokeBorder(Color.white.opacity(0.12), lineWidth: 1))
+                    .background(Circle().fill(Color.white.opacity(0.08)))
+                    .overlay(Circle().strokeBorder(Color.white.opacity(0.14), lineWidth: 1))
+                    .shadow(color: .black.opacity(0.3), radius: 4)
             }
+
             VStack(alignment: .leading, spacing: 2) {
                 Text(game?.name ?? "Game")
                     .font(.system(size: 16.5, weight: .bold, design: .rounded))
                     .foregroundColor(.white).lineLimit(1)
+                    .shadow(color: .cyan.opacity(0.25), radius: 4)
                 HStack(spacing: 4) {
-                    Circle().fill(activeCountInGame > 0 ? Color.cyan : Color.green).frame(width: 5, height: 5)
-                    Text(activeCountInGame > 0 ? "\(activeCountInGame) đang bật" : "Sẵn sàng")
+                    Circle()
+                        .fill(activeCountInGame > 0 ? Color.cyan : Color.green)
+                        .frame(width: 5, height: 5)
+                        .shadow(color: (activeCountInGame > 0 ? Color.cyan : Color.green).opacity(0.8), radius: 3)
+                    Text(activeCountInGame > 0 ? "\(activeCountInGame) mod đang bật" : "Sẵn sàng kích hoạt")
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundColor(activeCountInGame > 0 ? .cyan : .white.opacity(0.55))
                 }
@@ -442,105 +680,98 @@ private struct GameDetailView: View {
                 .overlay(
                     RoundedRectangle(cornerRadius: 11, style: .continuous)
                         .strokeBorder(
-                            LinearGradient(colors: [.cyan, .white.opacity(0.3)], startPoint: .topLeading, endPoint: .bottomTrailing),
+                            LinearGradient(colors: [.cyan, .white.opacity(0.35)], startPoint: .topLeading, endPoint: .bottomTrailing),
                             lineWidth: 1.2
                         )
                 )
+                .shadow(color: .cyan.opacity(0.35), radius: 6)
         }
         .padding(.horizontal, 16).padding(.top, 6)
     }
 
-    // MARK: CATEGORY BAR (MENU DROPDOWN + SEARCH + FILTER)
+    // MARK: CATEGORY BAR (MENU + FILTER)
     private var categoryBar: some View {
-        HStack(spacing: 8) {
-            // Menu dropdown danh mục
+        HStack(spacing: 9) {
             Menu {
                 ForEach(availableTabs) { tab in
                     let count = (game?.items ?? []).filter { $0.hidden != true && $0.category.rawValue == tab.id }.count
                     Button {
                         iPhoneHaptics.shared.playTap()
-                        withAnimation(.spring(response: 0.28, dampingFraction: 0.78)) {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
                             selectedTabID = tab.id
                         }
                     } label: {
-                        Label {
-                            Text("\(tab.title) (\(count))")
-                        } icon: {
-                            Image(systemName: tab.icon)
-                        }
+                        Label("\(tab.title) (\(count))", systemImage: tab.icon)
                     }
                 }
             } label: {
-                HStack(spacing: 6) {
+                HStack(spacing: 7) {
                     Image(systemName: currentTab?.icon ?? "square.grid.2x2.fill")
-                        .font(.system(size: 12, weight: .bold))
+                        .font(.system(size: 13, weight: .bold))
                     Text(currentTab?.title.uppercased() ?? "DANH MỤC")
-                        .font(.system(size: 12, weight: .heavy, design: .rounded))
+                        .font(.system(size: 12.5, weight: .heavy, design: .rounded))
                         .lineLimit(1)
                     Text("\(currentCount)")
                         .font(.system(size: 9.5, weight: .black, design: .rounded))
                         .foregroundColor(.black)
                         .frame(minWidth: 18, minHeight: 18)
-                        .background(Color.white.opacity(0.95))
+                        .background(Color.white)
                         .clipShape(Capsule())
                     Image(systemName: "chevron.down")
                         .font(.system(size: 9, weight: .black))
                 }
                 .foregroundColor(.black)
-                .padding(.horizontal, 11).padding(.vertical, 9)
+                .padding(.horizontal, 12).padding(.vertical, 10)
                 .background(
                     LinearGradient(
                         colors: [Color(red: 0.25, green: 0.92, blue: 1.0), Color.cyan],
                         startPoint: .leading, endPoint: .trailing
                     )
                 )
-                .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
-                .shadow(color: .cyan.opacity(0.35), radius: 6)
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .shadow(color: .cyan.opacity(0.5), radius: 8)
             }
+            .frame(maxWidth: .infinity)
 
-            // Search field
-            HStack(spacing: 6) {
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: 12, weight: .medium)).foregroundColor(.white.opacity(0.4))
-                TextField("Tìm mod...", text: $searchText)
-                    .font(.system(size: 12.5)).foregroundColor(.white).tint(.cyan)
-                if !searchText.isEmpty {
-                    Button { searchText = "" } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 12)).foregroundColor(.white.opacity(0.4))
-                    }
-                }
-            }
-            .padding(.horizontal, 10).padding(.vertical, 9)
-            .background(Color.white.opacity(0.055))
-            .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
-            .layoutPriority(-1)
-
-            // Filter button
             Button {
                 iPhoneHaptics.shared.playTap()
                 withAnimation(.spring(response: 0.26, dampingFraction: 0.78)) { onlyActiveFilter.toggle() }
             } label: {
-                Image(systemName: onlyActiveFilter ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
-                    .font(.system(size: 19, weight: .semibold))
-                    .foregroundColor(onlyActiveFilter ? .black : .white.opacity(0.55))
-                    .frame(width: 36, height: 36)
-                    .background(onlyActiveFilter ? Color.cyan : Color.white.opacity(0.055))
-                    .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).strokeBorder(onlyActiveFilter ? Color.white.opacity(0.5) : Color.white.opacity(0.08), lineWidth: 1))
+                HStack(spacing: 6) {
+                    Image(systemName: onlyActiveFilter ? "checkmark.circle.fill" : "circle.dashed")
+                        .font(.system(size: 12, weight: .bold))
+                    Text("Đang bật")
+                        .font(.system(size: 12, weight: .bold, design: .rounded))
+                }
+                .foregroundColor(onlyActiveFilter ? .black : .white.opacity(0.75))
+                .padding(.horizontal, 12).padding(.vertical, 10)
+                .background(
+                    Group {
+                        if onlyActiveFilter {
+                            LinearGradient(colors: [Color.cyan, Color(red: 0.4, green: 0.95, blue: 1)], startPoint: .topLeading, endPoint: .bottomTrailing)
+                        } else {
+                            Color.white.opacity(0.055)
+                        }
+                    }
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .strokeBorder(onlyActiveFilter ? Color.white.opacity(0.5) : Color.white.opacity(0.1), lineWidth: 1)
+                )
+                .shadow(color: onlyActiveFilter ? .cyan.opacity(0.45) : .clear, radius: 7)
             }
             .buttonStyle(.plain)
         }
         .padding(.horizontal, 16)
     }
 
-    // MARK: MOD LIST (1 CỘT, TOGGLE NATIVE)
+    // MARK: MOD LIST
     private var modList: some View {
         ScrollView(showsIndicators: false) {
             if items.isEmpty {
                 VStack(spacing: 10) {
-                    Image(systemName: "tray").font(.system(size: 28, weight: .light)).foregroundColor(.white.opacity(0.3))
+                    Image(systemName: "tray").font(.system(size: 28, weight: .ultraLight)).foregroundColor(.white.opacity(0.3))
                     Text(onlyActiveFilter ? "Chưa có mod nào đang bật" : "Không có mod trong mục này")
                         .font(.system(size: 13, weight: .medium)).foregroundColor(.white.opacity(0.5))
                 }
@@ -571,29 +802,31 @@ private struct GameDetailView: View {
             HStack(spacing: 8) {
                 Image(systemName: "play.fill").font(.system(size: 13, weight: .black))
                 Text("KHỞI ĐỘNG GAME")
-                    .font(.system(size: 14, weight: .black, design: .rounded)).tracking(0.8)
+                    .font(.system(size: 14, weight: .black, design: .rounded)).tracking(0.9)
             }
             .foregroundColor(.black)
             .frame(maxWidth: .infinity).frame(height: 48)
             .background(
-                LinearGradient(colors: [Color(red: 0.25, green: 0.93, blue: 1.0), Color(red: 0.1, green: 0.8, blue: 0.98)],
-                               startPoint: .leading, endPoint: .trailing)
+                LinearGradient(
+                    colors: [Color(red: 0.25, green: 0.93, blue: 1.0), Color(red: 0.1, green: 0.8, blue: 0.98)],
+                    startPoint: .leading, endPoint: .trailing
+                )
             )
             .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 15, style: .continuous).strokeBorder(Color.white.opacity(0.4), lineWidth: 1))
-            .shadow(color: .cyan.opacity(0.42), radius: 10, y: 3)
+            .overlay(RoundedRectangle(cornerRadius: 15, style: .continuous).strokeBorder(Color.white.opacity(0.45), lineWidth: 1))
+            .shadow(color: .cyan.opacity(0.5), radius: 12, y: 4)
         }
         .buttonStyle(ClassicScaleButtonStyle())
         .padding(.horizontal, 16).padding(.top, 8).padding(.bottom, 6)
         .background(
-            LinearGradient(colors: [Color.black.opacity(0.0), Color.black.opacity(0.85), Color.black], startPoint: .top, endPoint: .bottom)
+            LinearGradient(colors: [Color.black.opacity(0.0), Color.black.opacity(0.88), Color.black], startPoint: .top, endPoint: .bottom)
                 .ignoresSafeArea()
         )
     }
 }
 
 // ==========================================================
-// MARK: - MOD ROW (1 CỘT, TOGGLE)
+// MARK: - MOD ROW (TOGGLE + SPARKLE BURST)
 // ==========================================================
 private struct ModernModRow: View {
     let item: GameCatalogItem
@@ -604,6 +837,8 @@ private struct ModernModRow: View {
     @State private var showErrorAlert = false
     @State private var errorMessage = ""
     @State private var localToggle: Bool = false
+    @State private var burst = false
+    @State private var iconScale: CGFloat = 1.0
 
     private var isSessionActive: Bool {
         authManager.isAuthorized && !authManager.isInteractionLocked && !store.catalog.resolvedMaintenanceEnabled
@@ -637,22 +872,32 @@ private struct ModernModRow: View {
         let busy = store.isMultiItemBusy(item: item)
 
         HStack(spacing: 11) {
-            // Icon
+            // Icon + Sparkle burst
             ZStack {
                 if isOn {
-                    RoundedRectangle(cornerRadius: 11).fill(Color.cyan.opacity(0.28))
-                        .frame(width: 42, height: 42).blur(radius: 7)
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color.cyan.opacity(0.3))
+                        .frame(width: 44, height: 44).blur(radius: 9)
                 }
+                SparkleBurst(trigger: burst)
+                    .frame(width: 44, height: 44)
+
                 SecureCatalogImage(urlString: cardAvatarURL, placeholder: Image(systemName: "bolt.fill"))
-                    .frame(width: 38, height: 38)
-                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .frame(width: 40, height: 40)
+                    .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
                     .overlay(
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .strokeBorder(isOn ? Color.cyan : Color.white.opacity(0.15), lineWidth: isOn ? 1.3 : 1)
+                        RoundedRectangle(cornerRadius: 11, style: .continuous)
+                            .strokeBorder(
+                                isOn
+                                ? LinearGradient(colors: [.cyan, .white.opacity(0.5)], startPoint: .topLeading, endPoint: .bottomTrailing)
+                                : LinearGradient(colors: [Color.white.opacity(0.18), Color.white.opacity(0.05)], startPoint: .topLeading, endPoint: .bottomTrailing),
+                                lineWidth: isOn ? 1.4 : 1
+                            )
                     )
+                    .shadow(color: isOn ? .cyan.opacity(0.6) : .clear, radius: 6)
+                    .scaleEffect(iconScale)
             }
 
-            // Info
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 5) {
                     Text(item.name)
@@ -671,6 +916,7 @@ private struct ModernModRow: View {
                     Circle()
                         .fill(busy ? Color.yellow : (isOn ? Color.cyan : Color.white.opacity(0.25)))
                         .frame(width: 5, height: 5)
+                        .shadow(color: isOn ? .cyan.opacity(0.9) : .clear, radius: 3)
                     Text(busy ? "Đang nạp..." : (isOn ? "Đang bật" : subtitleDisplay))
                         .font(.system(size: 10.5, weight: .medium))
                         .foregroundColor(busy ? .yellow : (isOn ? .cyan : .white.opacity(0.45)))
@@ -680,7 +926,6 @@ private struct ModernModRow: View {
 
             Spacer(minLength: 4)
 
-            // Info
             Button {
                 iPhoneHaptics.shared.playTap()
                 showDetailSheet = true
@@ -691,10 +936,9 @@ private struct ModernModRow: View {
             }
             .buttonStyle(.plain)
 
-            // Toggle / Loading
             if busy {
                 ProgressView().tint(.cyan).scaleEffect(0.72)
-                    .frame(width: 40, height: 26)
+                    .frame(width: 42, height: 26)
             } else {
                 Toggle("", isOn: $localToggle)
                     .labelsHidden()
@@ -709,20 +953,27 @@ private struct ModernModRow: View {
                     }
             }
         }
-        .padding(.horizontal, 11).padding(.vertical, 9)
+        .padding(.horizontal, 11).padding(.vertical, 10)
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(isOn ? Color.cyan.opacity(0.06) : Color.white.opacity(0.04))
+                .fill(
+                    isOn
+                    ? LinearGradient(colors: [Color.cyan.opacity(0.13), Color.cyan.opacity(0.04)], startPoint: .leading, endPoint: .trailing)
+                    : LinearGradient(colors: [Color.white.opacity(0.05), Color.white.opacity(0.025)], startPoint: .top, endPoint: .bottom)
+                )
         )
         .overlay(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .strokeBorder(
-                    isOn ? Color.cyan.opacity(0.4) : Color.white.opacity(0.07),
-                    lineWidth: isOn ? 1.2 : 0.8
+                    isOn
+                    ? LinearGradient(colors: [.cyan, Color.cyan.opacity(0.5), Color.white.opacity(0.25)], startPoint: .topLeading, endPoint: .bottomTrailing)
+                    : LinearGradient(colors: [Color.white.opacity(0.09), Color.white.opacity(0.03)], startPoint: .topLeading, endPoint: .bottomTrailing),
+                    lineWidth: isOn ? 1.3 : 0.9
                 )
         )
+        .shadow(color: isOn ? .cyan.opacity(0.2) : .clear, radius: 8, y: 2)
         .opacity(hasLink ? 1 : 0.5)
-        .animation(.spring(response: 0.25, dampingFraction: 0.8), value: isOn)
+        .animation(.spring(response: 0.28, dampingFraction: 0.78), value: isOn)
         .onChange(of: isSessionActive) { a in
             if !a { showDetailSheet = false; showErrorAlert = false }
         }
@@ -733,10 +984,22 @@ private struct ModernModRow: View {
     }
 
     private func handleToggle(_ newVal: Bool) {
-        guard !store.isMultiItemBusy(item: item) else { localToggle = store.isMultiItemOn(item: item); return }
+        guard !store.isMultiItemBusy(item: item) else {
+            localToggle = store.isMultiItemOn(item: item); return
+        }
         if newVal {
             guard isSessionActive else { localToggle = false; return }
             iPhoneHaptics.shared.playTickOn()
+            // Hiệu ứng bùng nổ
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.4)) { iconScale = 1.15 }
+            withAnimation(.easeOut(duration: 0.5)) { burst = true }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.6)) { iconScale = 1.0 }
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                var tx = Transaction(); tx.disablesAnimations = true
+                withTransaction(tx) { burst = false }
+            }
             Task {
                 await store.setMultiEnabled(true, item: item)
                 if !authManager.isAuthorized || authManager.isInteractionLocked || store.catalog.resolvedMaintenanceEnabled {
@@ -755,7 +1018,9 @@ private struct ModernModRow: View {
     }
 }
 
+// ==========================================================
 // MARK: - MOD DETAIL SHEET
+// ==========================================================
 struct ModDetailSheet: View {
     let item: GameCatalogItem
     @Environment(\.dismiss) private var dismiss
@@ -771,14 +1036,15 @@ struct ModDetailSheet: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                ModernBackground(urlString: authManager.publicBackgroundURL)
+                ModernBackground(urlString: authManager.publicBackgroundURL, particleCount: 18)
                 ScrollView {
                     VStack(spacing: 16) {
                         if let imgURL = item.imageURL, !imgURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                             SecureCatalogImage(urlString: imgURL, placeholder: Image(systemName: "photo"))
                                 .frame(maxWidth: .infinity).frame(height: 220)
                                 .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                                .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Color.cyan.opacity(0.35), lineWidth: 1))
+                                .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Color.cyan.opacity(0.4), lineWidth: 1))
+                                .shadow(color: .cyan.opacity(0.25), radius: 12)
                         }
                         if let guide = item.usageGuide, !guide.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                             VStack(alignment: .leading, spacing: 12) {
