@@ -33,23 +33,19 @@ final class CyberSoundEngine {
     }
     
     func playActivate() {
-        // Tiếng Power-Up quét tần số từ 420Hz -> 1280Hz
-        playSweep(startFreq: 420, endFreq: 1280, duration: 0.16, harmonic: true)
+        playSweep(startFreq: 440, endFreq: 1320, duration: 0.15, harmonic: true)
     }
     
     func playDeactivate() {
-        // Tiếng Power-Down hạ tần số từ 880Hz -> 320Hz
-        playSweep(startFreq: 880, endFreq: 320, duration: 0.13, harmonic: false)
+        playSweep(startFreq: 860, endFreq: 310, duration: 0.12, harmonic: false)
     }
     
     func playTap() {
-        // Tiếng Click ngắn gọn
-        playSweep(startFreq: 1100, endFreq: 750, duration: 0.045, harmonic: false)
+        playSweep(startFreq: 1150, endFreq: 780, duration: 0.04, harmonic: false)
     }
     
     func playLaunch() {
-        // Tiếng khởi động game uy lực
-        playSweep(startFreq: 260, endFreq: 1450, duration: 0.28, harmonic: true)
+        playSweep(startFreq: 260, endFreq: 1480, duration: 0.26, harmonic: true)
     }
     
     private func playSweep(startFreq: Double, endFreq: Double, duration: Double, harmonic: Bool) {
@@ -72,7 +68,6 @@ final class CyberSoundEngine {
                 let progress = Double(i) / Double(frameCount)
                 let currentFreq = startFreq + (endFreq - startFreq) * pow(progress, 0.85)
                 
-                // Envelope chống rè đầu/cuối âm
                 let attack = min(1.0, progress * 18.0)
                 let release = pow(1.0 - progress, 1.4)
                 let envelope = Float(attack * release) * 0.35
@@ -95,7 +90,7 @@ final class CyberSoundEngine {
     }
 }
 
-// MARK: - BỘ TẢI ẢNH AN TOÀN + CACHE RAM CHỐNG LOAD LẠI
+// MARK: - CACHE ẢNH RAM CHỐNG LOAD LẠI
 final class CatalogImageCache {
     static let shared = NSCache<NSString, UIImage>()
 }
@@ -113,7 +108,7 @@ struct SecureCatalogImage: View {
                 Image(uiImage: image)
                     .resizable()
                     .scaledToFill()
-                    .transition(.opacity.animation(.easeInOut(duration: 0.3)))
+                    .transition(.opacity.animation(.easeInOut(duration: 0.28)))
             } else {
                 placeholder
                     .resizable()
@@ -164,14 +159,13 @@ struct SecureCatalogImage: View {
     }
 }
 
-// MARK: - MÀN HÌNH CHÍNH (TACTICAL HUB GỌN 1 KHUNG)
+// MARK: - MÀN HÌNH CHÍNH (BENTO COMMAND HUB)
 struct GameCatalogView: View {
     @StateObject private var store = GameCatalogStore.shared
     @StateObject private var authManager = CustomAuthManager.shared
     @Binding var isTabBarHidden: Bool
     
     @State private var isRotating = false
-    @State private var pulseGlow = false
     
     private var isSessionActive: Bool {
         authManager.isAuthorized
@@ -188,20 +182,20 @@ struct GameCatalogView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                Color(red: 0.012, green: 0.02, blue: 0.04)
+                Color(red: 0.01, green: 0.015, blue: 0.03)
                     .ignoresSafeArea()
                 
                 // --- BACKGROUND ĐỘNG ---
                 GeometryReader { geo in
                     SecureCatalogImage(urlString: authManager.publicBackgroundURL, placeholder: Image(systemName: "sparkles"))
                         .frame(width: geo.size.width, height: geo.size.height)
-                        .opacity(0.6)
+                        .opacity(0.55)
                         .overlay(
                             LinearGradient(
                                 colors: [
-                                    Color.black.opacity(0.3),
-                                    Color(red: 0.015, green: 0.03, blue: 0.06).opacity(0.78),
-                                    Color(red: 0.01, green: 0.015, blue: 0.03).opacity(0.96)
+                                    Color.black.opacity(0.35),
+                                    Color(red: 0.01, green: 0.02, blue: 0.04).opacity(0.82),
+                                    Color.black.opacity(0.96)
                                 ],
                                 startPoint: .top,
                                 endPoint: .bottom
@@ -210,155 +204,108 @@ struct GameCatalogView: View {
                 }
                 .ignoresSafeArea()
                 
-                // --- ÁNH SÁNG AMBIENT NEON ---
-                Circle()
-                    .fill(Color.cyan.opacity(pulseGlow ? 0.18 : 0.1))
-                    .frame(width: 280, height: 280)
-                    .blur(radius: 85)
-                    .offset(x: -90, y: -250)
-                    .ignoresSafeArea()
-                
-                // --- HẠT NĂNG LƯỢNG BAY NHẸ (60FPS GPU) ---
                 CyberParticleCanvas()
                     .ignoresSafeArea()
                     .allowsHitTesting(false)
                 
-                // --- NỘI DUNG CHÍNH ---
                 ScrollView(showsIndicators: false) {
                     VStack(spacing: 18) {
-                        
-                        // TOP BAR NHỎ GỌN
-                        HStack {
-                            HStack(spacing: 6) {
-                                Image(systemName: "cpu.fill")
-                                    .font(.system(size: 10, weight: .bold))
-                                    .foregroundColor(.cyan)
-                                Text("SOVEREIGN OS")
-                                    .font(.system(size: 10, weight: .black, design: .monospaced))
-                                    .tracking(1.1)
-                                    .foregroundColor(.white.opacity(0.8))
-                            }
-                            .padding(.horizontal, 11)
-                            .padding(.vertical, 6)
-                            .background(.ultraThinMaterial)
-                            .environment(\.colorScheme, .dark)
-                            .clipShape(Capsule())
-                            .overlay(Capsule().stroke(Color.white.opacity(0.12), lineWidth: 1))
-                            
-                            Spacer()
-                            
-                            HStack(spacing: 6) {
-                                Circle()
-                                    .fill(Color.green)
-                                    .frame(width: 7, height: 7)
-                                    .shadow(color: .green, radius: 5)
-                                Text(totalEnabledMods > 0 ? "\(totalEnabledMods) ACTIVE" : "ONLINE")
-                                    .font(.system(size: 10, weight: .black, design: .monospaced))
-                                    .tracking(0.8)
-                                    .foregroundColor(.cyan)
-                            }
-                            .padding(.horizontal, 11)
-                            .padding(.vertical, 6)
-                            .background(.ultraThinMaterial)
-                            .environment(\.colorScheme, .dark)
-                            .clipShape(Capsule())
-                            .overlay(Capsule().stroke(Color.cyan.opacity(0.45), lineWidth: 1))
-                        }
-                        .padding(.horizontal, 18)
-                        .padding(.top, 14)
-                        
-                        // HERO AVATAR & TÊN THƯƠNG HIỆU (THU GỌN CHIỀU CAO ĐỂ THẤY GAME NGAY)
-                        VStack(spacing: 10) {
+                        // HEADER BENTO GỌN GÀNG
+                        HStack(spacing: 14) {
                             ZStack {
                                 Circle()
-                                    .fill(Color.cyan.opacity(0.22))
-                                    .frame(width: 112, height: 112)
-                                    .blur(radius: 18)
-                                
-                                Circle()
                                     .stroke(
-                                        AngularGradient(
-                                            gradient: Gradient(colors: [.cyan, .blue, .purple, .cyan]),
-                                            center: .center
-                                        ),
-                                        lineWidth: 3
+                                        AngularGradient(colors: [.cyan, .white, .blue, .cyan], center: .center),
+                                        lineWidth: 2.5
                                     )
-                                    .frame(width: 96, height: 96)
+                                    .frame(width: 66, height: 66)
                                     .rotationEffect(.degrees(isRotating ? 360 : 0))
-                                    .animation(.linear(duration: 4).repeatForever(autoreverses: false), value: isRotating)
-                                    .drawingGroup()
-                                
-                                Circle()
-                                    .stroke(style: StrokeStyle(lineWidth: 1, dash: [4, 4]))
-                                    .foregroundColor(.cyan.opacity(0.45))
-                                    .frame(width: 106, height: 106)
-                                    .rotationEffect(.degrees(isRotating ? -360 : 0))
-                                    .animation(.linear(duration: 8).repeatForever(autoreverses: false), value: isRotating)
+                                    .animation(.linear(duration: 4.5).repeatForever(autoreverses: false), value: isRotating)
                                     .drawingGroup()
                                 
                                 SecureCatalogImage(urlString: authManager.publicAvatarURL, placeholder: Image(systemName: "person.crop.circle.fill"))
-                                    .frame(width: 86, height: 86)
+                                    .frame(width: 58, height: 58)
                                     .clipShape(Circle())
-                                    .overlay(Circle().stroke(Color.white.opacity(0.25), lineWidth: 1))
                             }
                             
-                            VStack(spacing: 3) {
+                            VStack(alignment: .leading, spacing: 4) {
                                 Text(authManager.publicAppName.isEmpty ? "𝐒𝐨𝐯𝐞𝐫𝐞𝐢𝐠𝐧 𝐒𝐨𝐥𝐢𝐭𝐮𝐝𝐞" : authManager.publicAppName)
-                                    .font(.system(size: 24, weight: .black, design: .rounded))
-                                    .foregroundStyle(
-                                        LinearGradient(colors: [.white, .cyan.opacity(0.85)], startPoint: .top, endPoint: .bottom)
-                                    )
-                                    .shadow(color: .cyan.opacity(0.55), radius: 10)
+                                    .font(.system(size: 20, weight: .black, design: .rounded))
+                                    .foregroundColor(.white)
+                                    .lineLimit(1)
                                 
-                                Text("Chạm vào trò chơi để mở bảng điều khiển")
-                                    .font(.system(size: 12, weight: .medium))
-                                    .foregroundColor(.white.opacity(0.55))
-                            }
-                        }
-                        
-                        // TIÊU ĐỀ KHU VỰC GAME
-                        HStack {
-                            HStack(spacing: 6) {
-                                RoundedRectangle(cornerRadius: 2)
-                                    .fill(Color.cyan)
-                                    .frame(width: 3, height: 13)
-                                Text("TRÒ CHƠI HỖ TRỢ")
-                                    .font(.system(size: 11, weight: .heavy, design: .monospaced))
-                                    .tracking(1.3)
-                                    .foregroundColor(.white.opacity(0.85))
+                                HStack(spacing: 8) {
+                                    HStack(spacing: 5) {
+                                        Circle()
+                                            .fill(Color.green)
+                                            .frame(width: 6, height: 6)
+                                            .shadow(color: .green, radius: 4)
+                                        Text("ONLINE")
+                                            .font(.system(size: 9.5, weight: .black, design: .monospaced))
+                                            .foregroundColor(.cyan)
+                                    }
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 3)
+                                    .background(Color.cyan.opacity(0.12))
+                                    .clipShape(Capsule())
+                                    
+                                    if totalEnabledMods > 0 {
+                                        Text("\(totalEnabledMods) ĐANG BẬT")
+                                            .font(.system(size: 9.5, weight: .black, design: .monospaced))
+                                            .foregroundColor(.black)
+                                            .padding(.horizontal, 8)
+                                            .padding(.vertical, 3)
+                                            .background(Color.cyan)
+                                            .clipShape(Capsule())
+                                    }
+                                }
                             }
                             
                             Spacer()
-                            
-                            Text("\(store.catalog.orderedGames.count) GAME")
+                        }
+                        .padding(14)
+                        .background(.ultraThinMaterial)
+                        .environment(\.colorScheme, .dark)
+                        .clipShape(RoundedRectangle(cornerRadius: 22))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 22)
+                                .stroke(Color.white.opacity(0.15), lineWidth: 1)
+                        )
+                        .padding(.horizontal, 16)
+                        .padding(.top, 14)
+                        
+                        // TIÊU ĐỀ DANH SÁCH GAME
+                        HStack {
+                            Text("CHỌN TRÒ CHƠI")
+                                .font(.system(size: 11, weight: .heavy, design: .monospaced))
+                                .tracking(1.4)
+                                .foregroundColor(.white.opacity(0.6))
+                            Spacer()
+                            Text("\(store.catalog.orderedGames.count) ỨNG DỤNG")
                                 .font(.system(size: 10, weight: .bold, design: .monospaced))
                                 .foregroundColor(.cyan)
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 3)
-                                .background(Color.cyan.opacity(0.12))
-                                .clipShape(Capsule())
                         }
                         .padding(.horizontal, 20)
-                        .padding(.top, 4)
+                        .padding(.bottom, -6)
                         
-                        // DANH SÁCH GAME CARDS
+                        // DANH SÁCH GAME
                         VStack(spacing: 12) {
                             if store.catalog.orderedGames.isEmpty {
                                 VStack(spacing: 10) {
                                     Image(systemName: "gamecontroller")
-                                        .font(.system(size: 30))
+                                        .font(.system(size: 28))
                                         .foregroundColor(.cyan.opacity(0.5))
                                     Text("Chưa có trò chơi nào được cấu hình")
                                         .font(.system(size: 13.5, weight: .medium))
                                         .foregroundColor(.white.opacity(0.55))
                                 }
                                 .frame(maxWidth: .infinity)
-                                .padding(.vertical, 36)
+                                .padding(.vertical, 40)
                                 .background(.ultraThinMaterial)
                                 .environment(\.colorScheme, .dark)
                                 .cornerRadius(20)
                                 .overlay(RoundedRectangle(cornerRadius: 20).stroke(Color.white.opacity(0.1), lineWidth: 1))
-                                .padding(.horizontal, 18)
+                                .padding(.horizontal, 16)
                             } else {
                                 ForEach(store.catalog.orderedGames) { game in
                                     NavigationLink(destination: GameDetailView(gameID: game.id, isTabBarHidden: $isTabBarHidden)) {
@@ -372,7 +319,7 @@ struct GameCatalogView: View {
                                         UIImpactFeedbackGenerator(style: .light).impactOccurred()
                                         withAnimation(.easeInOut(duration: 0.2)) { isTabBarHidden = true }
                                     })
-                                    .padding(.horizontal, 18)
+                                    .padding(.horizontal, 16)
                                 }
                             }
                         }
@@ -385,9 +332,6 @@ struct GameCatalogView: View {
             .toolbar(.hidden, for: .navigationBar)
             .onAppear {
                 isRotating = true
-                withAnimation(.easeInOut(duration: 2.5).repeatForever(autoreverses: true)) {
-                    pulseGlow = true
-                }
                 store.rememberCatalogItems()
                 if !authManager.isAuthorized || store.catalog.resolvedMaintenanceEnabled {
                     store.disableAllEnabledMods()
@@ -430,22 +374,13 @@ private struct GameCatalogCardRow: View {
     
     var body: some View {
         HStack(spacing: 14) {
-            ZStack {
-                Circle()
-                    .fill(Color.cyan.opacity(0.16))
-                    .frame(width: 58, height: 58)
-                
-                SecureCatalogImage(urlString: game.iconURL ?? "", placeholder: Image(systemName: "gamecontroller.fill"))
-                    .frame(width: 52, height: 52)
-                    .clipShape(Circle())
-                    .overlay(
-                        Circle().stroke(
-                            LinearGradient(colors: [.cyan, .blue], startPoint: .topLeading, endPoint: .bottomTrailing),
-                            lineWidth: 2
-                        )
-                    )
-                    .shadow(color: .cyan.opacity(0.45), radius: 7)
-            }
+            SecureCatalogImage(urlString: game.iconURL ?? "", placeholder: Image(systemName: "gamecontroller.fill"))
+                .frame(width: 56, height: 56)
+                .clipShape(RoundedRectangle(cornerRadius: 16))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16)
+                        .stroke(LinearGradient(colors: [.cyan, .white.opacity(0.3)], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1.5)
+                )
             
             VStack(alignment: .leading, spacing: 5) {
                 Text(game.name)
@@ -454,65 +389,51 @@ private struct GameCatalogCardRow: View {
                     .lineLimit(1)
                 
                 HStack(spacing: 8) {
-                    Label("\(activeVisibleItemsCount) tính năng", systemImage: "square.grid.2x2.fill")
-                        .font(.system(size: 11.5, weight: .medium))
-                        .foregroundColor(.white.opacity(0.6))
+                    Text("\(activeVisibleItemsCount) chức năng")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(.white.opacity(0.55))
                     
                     if enabledModCount > 0 {
-                        Text("\(enabledModCount) đang bật")
-                            .font(.system(size: 10.5, weight: .bold))
-                            .foregroundColor(.black)
-                            .padding(.horizontal, 7)
-                            .padding(.vertical, 2)
-                            .background(Color.cyan)
-                            .clipShape(Capsule())
+                        Text("• \(enabledModCount) đang bật")
+                            .font(.system(size: 11.5, weight: .bold))
+                            .foregroundColor(.cyan)
                     }
                 }
             }
             
             Spacer()
             
-            ZStack {
-                Circle()
-                    .fill(LinearGradient(colors: [.cyan, .blue], startPoint: .topLeading, endPoint: .bottomTrailing))
-                    .frame(width: 36, height: 36)
-                    .shadow(color: .cyan.opacity(0.5), radius: 8)
-                
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 13.5, weight: .heavy))
-                    .foregroundColor(.white)
+            HStack(spacing: 4) {
+                Text("MỞ")
+                    .font(.system(size: 11, weight: .black, design: .monospaced))
+                Image(systemName: "arrow.right")
+                    .font(.system(size: 11, weight: .black))
             }
+            .foregroundColor(.black)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(LinearGradient(colors: [.cyan, .mint], startPoint: .topLeading, endPoint: .bottomTrailing))
+            .clipShape(Capsule())
+            .shadow(color: .cyan.opacity(0.4), radius: 6)
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 13)
+        .padding(14)
         .background(
             ZStack {
-                RoundedRectangle(cornerRadius: 20)
+                RoundedRectangle(cornerRadius: 22)
                     .fill(.ultraThinMaterial)
-                RoundedRectangle(cornerRadius: 20)
-                    .fill(
-                        LinearGradient(
-                            colors: [Color.white.opacity(0.08), Color.black.opacity(0.28)],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
+                RoundedRectangle(cornerRadius: 22)
+                    .fill(Color.white.opacity(0.03))
             }
         )
         .environment(\.colorScheme, .dark)
-        .clipShape(RoundedRectangle(cornerRadius: 20))
+        .clipShape(RoundedRectangle(cornerRadius: 22))
         .overlay(
-            RoundedRectangle(cornerRadius: 20)
+            RoundedRectangle(cornerRadius: 22)
                 .stroke(
-                    LinearGradient(
-                        colors: [.cyan.opacity(0.65), .white.opacity(0.1), .blue.opacity(0.45)],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    ),
+                    LinearGradient(colors: [.cyan.opacity(0.6), .white.opacity(0.1)], startPoint: .topLeading, endPoint: .bottomTrailing),
                     lineWidth: 1.2
                 )
         )
-        .shadow(color: .black.opacity(0.4), radius: 12, y: 6)
     }
 }
 
@@ -520,8 +441,8 @@ private struct GameCatalogCardRow: View {
 struct ScaleButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .scaleEffect(configuration.isPressed ? 0.96 : 1.0)
-            .animation(.spring(response: 0.25, dampingFraction: 0.65), value: configuration.isPressed)
+            .scaleEffect(configuration.isPressed ? 0.97 : 1.0)
+            .animation(.spring(response: 0.22, dampingFraction: 0.7), value: configuration.isPressed)
     }
 }
 
@@ -548,7 +469,7 @@ struct CyberParticleCanvas: View {
                         let rawY = p.y - CGFloat(time) * p.speed
                         let yPos = (rawY.truncatingRemainder(dividingBy: size.height + 60) + size.height + 60)
                             .truncatingRemainder(dividingBy: size.height + 60) - 30
-                        let xPos = p.x + sin(CGFloat(time) * 1.4 + p.y * 0.05) * 14
+                        let xPos = p.x + sin(CGFloat(time) * 1.4 + p.y * 0.05) * 12
                         
                         context.opacity = p.opacity
                         let rect = CGRect(x: xPos, y: yPos, width: p.size, height: p.size)
@@ -558,14 +479,14 @@ struct CyberParticleCanvas: View {
             }
             .onAppear {
                 guard particles.isEmpty else { return }
-                for i in 0..<28 {
+                for i in 0..<24 {
                     particles.append(
                         CyberParticleItem(
                             x: CGFloat.random(in: 0...geo.size.width),
                             y: CGFloat.random(in: 0...geo.size.height),
-                            size: CGFloat.random(in: 1.8...4.2),
-                            speed: CGFloat.random(in: 18...38),
-                            opacity: Double.random(in: 0.2...0.65),
+                            size: CGFloat.random(in: 1.8...3.8),
+                            speed: CGFloat.random(in: 18...35),
+                            opacity: Double.random(in: 0.18...0.55),
                             isCyan: i % 3 == 0
                         )
                     )
@@ -575,7 +496,7 @@ struct CyberParticleCanvas: View {
     }
 }
 
-// MARK: - CHI TIẾT GAME (LƯỚI 2 CỘT GỌN ĐẸP + TÌM KIẾM NHANH)
+// MARK: - CHI TIẾT GAME (BỐ CỤC CHIA CỘT BENTO: SIDEBAR TRÁI + DANH SÁCH GỌN PHẢI)
 private struct GameDetailView: View {
     let gameID: String
     @Binding var isTabBarHidden: Bool
@@ -621,24 +542,19 @@ private struct GameDetailView: View {
         guard let selected = game.tabIDs else { return ownTabs }
         return ownTabs.filter { selected.contains($0.id) }
     }
-    
-    private let gridColumns = [
-        GridItem(.flexible(), spacing: 11),
-        GridItem(.flexible(), spacing: 11)
-    ]
 
     var body: some View {
         ZStack {
-            Color(red: 0.012, green: 0.02, blue: 0.04)
+            Color(red: 0.01, green: 0.015, blue: 0.03)
                 .ignoresSafeArea()
             
             GeometryReader { geo in
                 SecureCatalogImage(urlString: authManager.publicBackgroundURL, placeholder: Image(systemName: "photo"))
                     .frame(width: geo.size.width, height: geo.size.height)
-                    .opacity(0.5)
+                    .opacity(0.45)
                     .overlay(
                         LinearGradient(
-                            colors: [Color.black.opacity(0.45), Color.black.opacity(0.84), Color.black.opacity(0.96)],
+                            colors: [Color.black.opacity(0.5), Color.black.opacity(0.86), Color.black.opacity(0.97)],
                             startPoint: .top,
                             endPoint: .bottom
                         )
@@ -646,9 +562,9 @@ private struct GameDetailView: View {
             }
             .ignoresSafeArea()
             
-            VStack(spacing: 0) {
-                // HEADER NHỎ GỌN
-                HStack(spacing: 12) {
+            VStack(spacing: 10) {
+                // 1. TOP HEADER GỌN
+                HStack(spacing: 10) {
                     Button {
                         CyberSoundEngine.shared.playTap()
                         UIImpactFeedbackGenerator(style: .light).impactOccurred()
@@ -656,208 +572,231 @@ private struct GameDetailView: View {
                         dismiss()
                     } label: {
                         Image(systemName: "chevron.left")
-                            .font(.system(size: 15, weight: .bold))
+                            .font(.system(size: 14, weight: .bold))
                             .foregroundColor(.white)
-                            .frame(width: 38, height: 38)
-                            .background(.ultraThinMaterial)
-                            .environment(\.colorScheme, .dark)
+                            .frame(width: 36, height: 36)
+                            .background(Color.white.opacity(0.08))
                             .clipShape(Circle())
-                            .overlay(Circle().stroke(Color.cyan.opacity(0.45), lineWidth: 1))
+                            .overlay(Circle().stroke(Color.white.opacity(0.18), lineWidth: 1))
                     }
                     
                     VStack(alignment: .leading, spacing: 1) {
-                        Text(game?.name ?? "Danh sách Mod")
-                            .font(.system(size: 18, weight: .black, design: .rounded))
+                        Text(game?.name ?? "Bảng điều khiển")
+                            .font(.system(size: 17, weight: .black, design: .rounded))
                             .foregroundColor(.white)
                             .lineLimit(1)
                         
-                        Text(activeCountInGame > 0 ? "Đang bật \(activeCountInGame) tính năng" : "Sẵn sàng kích hoạt")
+                        Text(activeCountInGame > 0 ? "Đang kích hoạt \(activeCountInGame) tính năng" : "Chạm thẻ để bật nhanh")
                             .font(.system(size: 11, weight: .semibold))
-                            .foregroundColor(activeCountInGame > 0 ? .cyan : .white.opacity(0.55))
+                            .foregroundColor(activeCountInGame > 0 ? .cyan : .white.opacity(0.5))
                     }
                     
                     Spacer()
                     
-                    SecureCatalogImage(urlString: game?.iconURL ?? "", placeholder: Image(systemName: "gamecontroller.fill"))
-                        .frame(width: 38, height: 38)
-                        .clipShape(Circle())
-                        .overlay(Circle().stroke(Color.cyan.opacity(0.4), lineWidth: 1))
-                }
-                .padding(.horizontal, 16)
-                .padding(.top, 12)
-                .padding(.bottom, 10)
-                
-                // THANH TAB PILL NGANG
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(availableTabs) { tab in
-                            let isSelected = selectedTabID == tab.id
-                            let tabItemCount = (game?.items ?? []).filter { $0.hidden != true && $0.category.rawValue == tab.id }.count
-                            
-                            Button {
-                                CyberSoundEngine.shared.playTap()
-                                UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                                withAnimation(.spring(response: 0.28, dampingFraction: 0.78)) {
-                                    selectedTabID = tab.id
-                                }
-                            } label: {
-                                HStack(spacing: 6) {
-                                    Image(systemName: tab.icon)
-                                        .font(.system(size: 12, weight: .bold))
-                                    Text(tab.title)
-                                        .font(.system(size: 13, weight: .bold, design: .rounded))
-                                    Text("\(tabItemCount)")
-                                        .font(.system(size: 10, weight: .black, design: .monospaced))
-                                        .padding(.horizontal, 6)
-                                        .padding(.vertical, 2)
-                                        .background(isSelected ? Color.black.opacity(0.18) : Color.white.opacity(0.1))
-                                        .clipShape(Capsule())
-                                }
-                                .foregroundColor(isSelected ? .black : .white.opacity(0.85))
-                                .padding(.horizontal, 13)
-                                .padding(.vertical, 8.5)
-                                .background(
-                                    Group {
-                                        if isSelected {
-                                            LinearGradient(colors: [.cyan, .mint], startPoint: .topLeading, endPoint: .bottomTrailing)
-                                        } else {
-                                            Color.white.opacity(0.07)
-                                        }
-                                    }
-                                )
-                                .clipShape(Capsule())
-                                .overlay(
-                                    Capsule()
-                                        .stroke(isSelected ? Color.white.opacity(0.6) : Color.white.opacity(0.12), lineWidth: 1)
-                                )
-                                .shadow(color: isSelected ? .cyan.opacity(0.4) : .clear, radius: 6)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 2)
-                }
-                .padding(.bottom, 8)
-                
-                // THANH TÌM KIẾM + LỌC ĐANG BẬT SIÊU GỌN
-                HStack(spacing: 8) {
-                    HStack(spacing: 7) {
-                        Image(systemName: "magnifyingglass")
-                            .font(.system(size: 12.5, weight: .semibold))
-                            .foregroundColor(.cyan.opacity(0.8))
-                        
-                        TextField("Tìm nhanh tính năng...", text: $searchText)
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundColor(.white)
-                            .tint(.cyan)
-                        
-                        if !searchText.isEmpty {
-                            Button {
-                                searchText = ""
-                            } label: {
-                                Image(systemName: "xmark.circle.fill")
-                                    .font(.system(size: 13))
-                                    .foregroundColor(.white.opacity(0.45))
-                            }
-                        }
-                    }
-                    .padding(.horizontal, 11)
-                    .padding(.vertical, 8)
-                    .background(Color.white.opacity(0.06))
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
-                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.1), lineWidth: 1))
-                    
+                    // Nút lọc nhanh "Đang bật"
                     Button {
                         CyberSoundEngine.shared.playTap()
                         UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                        withAnimation(.easeInOut(duration: 0.2)) {
+                        withAnimation(.easeInOut(duration: 0.18)) {
                             onlyActiveFilter.toggle()
                         }
                     } label: {
-                        HStack(spacing: 4) {
+                        HStack(spacing: 5) {
                             Circle()
                                 .fill(onlyActiveFilter ? Color.black : Color.cyan)
                                 .frame(width: 6, height: 6)
-                            Text("Đang bật")
-                                .font(.system(size: 12, weight: .bold))
+                            Text("Bật (\(activeCountInGame))")
+                                .font(.system(size: 11, weight: .black, design: .monospaced))
                         }
                         .foregroundColor(onlyActiveFilter ? .black : .cyan)
-                        .padding(.horizontal, 11)
-                        .padding(.vertical, 8)
-                        .background(onlyActiveFilter ? Color.cyan : Color.cyan.opacity(0.12))
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
-                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.cyan.opacity(0.35), lineWidth: 1))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 7)
+                        .background(onlyActiveFilter ? Color.cyan : Color.cyan.opacity(0.14))
+                        .clipShape(Capsule())
+                        .overlay(Capsule().stroke(Color.cyan.opacity(0.4), lineWidth: 1))
                     }
                     .buttonStyle(.plain)
                 }
-                .padding(.horizontal, 16)
-                .padding(.bottom, 8)
+                .padding(.horizontal, 14)
+                .padding(.top, 8)
                 
-                // LƯỚI 2 CỘT CHỨC NĂNG (GỌN GÀNG - XEM ĐƯỢC NHIỀU MỤC CÙNG LÚC)
-                ScrollView(showsIndicators: false) {
-                    if items.isEmpty {
-                        VStack(spacing: 10) {
-                            Image(systemName: "tray")
-                                .font(.system(size: 30))
-                                .foregroundColor(.white.opacity(0.3))
-                            Text(onlyActiveFilter ? "Chưa có tính năng nào đang bật ở tab này" : "Chưa có chức năng nào trong mục này")
-                                .font(.system(size: 13.5, weight: .medium))
-                                .foregroundColor(.white.opacity(0.55))
+                // 2. THANH TÌM KIẾM SIÊU MẢNH
+                HStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(.cyan.opacity(0.8))
+                    
+                    TextField("Tìm nhanh chức năng...", text: $searchText)
+                        .font(.system(size: 12.5, weight: .medium))
+                        .foregroundColor(.white)
+                        .tint(.cyan)
+                    
+                    if !searchText.isEmpty {
+                        Button {
+                            searchText = ""
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 13))
+                                .foregroundColor(.white.opacity(0.45))
                         }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 44)
-                        .background(.ultraThinMaterial)
-                        .environment(\.colorScheme, .dark)
-                        .cornerRadius(18)
-                        .overlay(RoundedRectangle(cornerRadius: 18).stroke(Color.white.opacity(0.08), lineWidth: 1))
-                        .padding(.horizontal, 16)
-                        .padding(.top, 12)
-                    } else {
-                        LazyVGrid(columns: gridColumns, spacing: 11) {
-                            ForEach(items) { item in
-                                ModGridTile(item: item)
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(Color.white.opacity(0.06))
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.1), lineWidth: 1))
+                .padding(.horizontal, 14)
+                
+                // 3. KHU VỰC CHÍNH CHIA 2 CỘT (SIDEBAR DANH MỤC TRÁI + DANH SÁCH CHỨC NĂNG PHẢI)
+                HStack(alignment: .top, spacing: 10) {
+                    
+                    // --- CỘT TRÁI: THANH DANH MỤC DỌC GỌN GÀNG ---
+                    ScrollView(showsIndicators: false) {
+                        VStack(spacing: 8) {
+                            ForEach(availableTabs) { tab in
+                                let isSelected = selectedTabID == tab.id
+                                let tabItems = (game?.items ?? []).filter { $0.hidden != true && $0.category.rawValue == tab.id }
+                                let activeInTab = tabItems.filter { store.isMultiItemOn(item: $0) }.count
+                                
+                                Button {
+                                    CyberSoundEngine.shared.playTap()
+                                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                                    withAnimation(.spring(response: 0.25, dampingFraction: 0.78)) {
+                                        selectedTabID = tab.id
+                                    }
+                                } label: {
+                                    VStack(spacing: 5) {
+                                        ZStack(alignment: .topTrailing) {
+                                            Image(systemName: tab.icon)
+                                                .font(.system(size: 16, weight: .bold))
+                                                .foregroundColor(isSelected ? .black : .cyan)
+                                                .frame(width: 34, height: 34)
+                                                .background(
+                                                    isSelected
+                                                    ? Color.white.opacity(0.28)
+                                                    : Color.cyan.opacity(0.12)
+                                                )
+                                                .clipShape(RoundedRectangle(cornerRadius: 10))
+                                            
+                                            if activeInTab > 0 {
+                                                Circle()
+                                                    .fill(isSelected ? Color.black : Color.green)
+                                                    .frame(width: 7, height: 7)
+                                                    .offset(x: 2, y: -2)
+                                            }
+                                        }
+                                        
+                                        Text(tab.title)
+                                            .font(.system(size: 10, weight: .black, design: .rounded))
+                                            .foregroundColor(isSelected ? .black : .white.opacity(0.85))
+                                            .multilineTextAlignment(.center)
+                                            .lineLimit(2)
+                                            .minimumScaleFactor(0.8)
+                                        
+                                        Text("\(tabItems.count)")
+                                            .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                            .foregroundColor(isSelected ? .black.opacity(0.75) : .white.opacity(0.45))
+                                    }
+                                    .frame(width: 74)
+                                    .padding(.vertical, 10)
+                                    .padding(.horizontal, 4)
+                                    .background(
+                                        Group {
+                                            if isSelected {
+                                                LinearGradient(colors: [.cyan, .mint], startPoint: .top, endPoint: .bottom)
+                                            } else {
+                                                Color.white.opacity(0.05)
+                                            }
+                                        }
+                                    )
+                                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 16)
+                                            .stroke(isSelected ? Color.white.opacity(0.65) : Color.white.opacity(0.1), lineWidth: 1)
+                                    )
+                                    .shadow(color: isSelected ? .cyan.opacity(0.35) : .clear, radius: 6)
+                                }
+                                .buttonStyle(.plain)
                             }
                         }
-                        .padding(.horizontal, 16)
-                        .padding(.top, 4)
-                        .padding(.bottom, 105)
+                        .padding(.bottom, 20)
+                    }
+                    .frame(width: 76)
+                    
+                    // --- CỘT PHẢI: DANH SÁCH CHỨC NĂNG SIÊU GỌN ---
+                    ScrollView(showsIndicators: false) {
+                        LazyVStack(spacing: 8) {
+                            if items.isEmpty {
+                                VStack(spacing: 10) {
+                                    Image(systemName: "tray")
+                                        .font(.system(size: 26))
+                                        .foregroundColor(.white.opacity(0.3))
+                                    Text(onlyActiveFilter ? "Chưa có mục nào đang bật" : "Trống")
+                                        .font(.system(size: 12.5, weight: .medium))
+                                        .foregroundColor(.white.opacity(0.5))
+                                }
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 44)
+                                .background(Color.white.opacity(0.04))
+                                .clipShape(RoundedRectangle(cornerRadius: 16))
+                                .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.white.opacity(0.08), lineWidth: 1))
+                            } else {
+                                ForEach(items) { item in
+                                    CompactModRow(item: item)
+                                }
+                            }
+                        }
+                        .padding(.bottom, 24)
                     }
                 }
+                .padding(.horizontal, 14)
             }
-            
-            // NÚT KHỞI ĐỘNG GAME NỔI Ở ĐÁY
-            VStack {
-                Spacer()
-                Button {
-                    guard isSessionActive else { return }
-                    CyberSoundEngine.shared.playLaunch()
-                    UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
-                    let rawLaunch = (game?.launchURL ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-                    if let url = URL(string: rawLaunch), !rawLaunch.isEmpty {
-                        UIApplication.shared.open(url)
+            // DOCK KHỞI ĐỘNG GAME NỔI GỌN Ở ĐÁY (KHÔNG CHE MẤT MỤC CUỐI)
+            .safeAreaInset(edge: .bottom) {
+                HStack(spacing: 10) {
+                    SecureCatalogImage(urlString: game?.iconURL ?? "", placeholder: Image(systemName: "gamecontroller.fill"))
+                        .frame(width: 44, height: 44)
+                        .clipShape(RoundedRectangle(cornerRadius: 13))
+                        .overlay(RoundedRectangle(cornerRadius: 13).stroke(Color.cyan.opacity(0.5), lineWidth: 1))
+                    
+                    Button {
+                        guard isSessionActive else { return }
+                        CyberSoundEngine.shared.playLaunch()
+                        UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
+                        let rawLaunch = (game?.launchURL ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                        if let url = URL(string: rawLaunch), !rawLaunch.isEmpty {
+                            UIApplication.shared.open(url)
+                        }
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: "play.fill")
+                                .font(.system(size: 14, weight: .black))
+                            Text("KHỞI ĐỘNG GAME")
+                                .font(.system(size: 14.5, weight: .black, design: .monospaced))
+                                .tracking(0.8)
+                        }
+                        .foregroundColor(.black)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 46)
+                        .background(
+                            LinearGradient(colors: [.cyan, Color(red: 0.15, green: 0.8, blue: 1.0)], startPoint: .leading, endPoint: .trailing)
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: 14))
+                        .shadow(color: .cyan.opacity(0.45), radius: 10, y: 4)
                     }
-                } label: {
-                    HStack(spacing: 9) {
-                        Image(systemName: "play.fill")
-                            .font(.system(size: 15, weight: .black))
-                        Text("KHỞI ĐỘNG GAME")
-                            .font(.system(size: 15.5, weight: .black, design: .monospaced))
-                            .tracking(1)
-                    }
-                    .foregroundColor(.black)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 52)
-                    .background(
-                        LinearGradient(colors: [.cyan, Color(red: 0.12, green: 0.78, blue: 1.0)], startPoint: .leading, endPoint: .trailing)
-                    )
-                    .clipShape(RoundedRectangle(cornerRadius: 16))
-                    .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.white.opacity(0.6), lineWidth: 1.2))
-                    .shadow(color: .cyan.opacity(0.5), radius: 16, y: 6)
+                    .buttonStyle(ScaleButtonStyle())
                 }
-                .buttonStyle(ScaleButtonStyle())
-                .padding(.horizontal, 18)
-                .padding(.bottom, 20)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .background(.ultraThinMaterial)
+                .environment(\.colorScheme, .dark)
+                .overlay(
+                    Rectangle()
+                        .frame(height: 1)
+                        .foregroundColor(Color.white.opacity(0.1)),
+                    alignment: .top
+                )
             }
         }
         .disabled(!isSessionActive)
@@ -896,15 +835,15 @@ private struct GameDetailView: View {
     }
 }
 
-// MARK: - THẺ LƯỚI 2 CỘT SIÊU GỌN + HIỆU ỨNG LASER SWEEP + ÂM THANH SFX
-private struct ModGridTile: View {
+// MARK: - THẺ CHỨC NĂNG SIÊU GỌN (CHẠM CẢ THẺ ĐỂ BẬT/TẮT + LASER SWEEP + SFX)
+private struct CompactModRow: View {
     let item: GameCatalogItem
     @StateObject private var store = GameCatalogStore.shared
     @StateObject private var authManager = CustomAuthManager.shared
     @State private var showDetailSheet = false
     @State private var showErrorAlert = false
     @State private var errorMessage = ""
-    @State private var sweepOffset: CGFloat = -160
+    @State private var sweepOffset: CGFloat = -220
     
     private var isSessionActive: Bool {
         authManager.isAuthorized
@@ -936,7 +875,7 @@ private struct ModGridTile: View {
     
     private var subtitleDisplay: String {
         let cleanSub = (item.subtitle ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        return cleanSub.isEmpty ? "Sẵn sàng kích hoạt" : cleanSub
+        return cleanSub.isEmpty ? "Chạm để bật/tắt" : cleanSub
     }
     
     var body: some View {
@@ -944,159 +883,123 @@ private struct ModGridTile: View {
         let isOn = store.isMultiItemOn(item: item)
         let busy = store.isMultiItemBusy(item: item)
         
-        VStack(alignment: .leading, spacing: 10) {
-            // HÀNG TRÊN: AVATAR NHỎ + BADGE + NÚT HDSD
-            HStack(spacing: 6) {
-                ZStack {
-                    Circle()
-                        .fill(isOn ? Color.cyan.opacity(0.24) : Color.white.opacity(0.06))
-                        .frame(width: 34, height: 34)
-                        .overlay(Circle().stroke(isOn ? Color.cyan : Color.white.opacity(0.14), lineWidth: 1.2))
-                    
-                    if !authManager.publicAvatarURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        SecureCatalogImage(urlString: authManager.publicAvatarURL, placeholder: Image(systemName: "bolt.fill"))
-                            .frame(width: 30, height: 30)
-                            .clipShape(Circle())
-                    } else {
-                        Image(systemName: isOn ? "bolt.fill" : "shield")
-                            .font(.system(size: 14, weight: .bold))
-                            .foregroundColor(isOn ? .cyan : .white.opacity(0.6))
-                    }
-                }
-                
-                Text(badgeLabel)
-                    .font(.system(size: 9, weight: .black, design: .monospaced))
-                    .foregroundColor(isHighlightedBadge ? .black : .white.opacity(0.85))
-                    .padding(.horizontal, 6.5)
-                    .padding(.vertical, 2.5)
-                    .background(
-                        Group {
-                            if isHighlightedBadge {
-                                LinearGradient(colors: [.cyan, .mint], startPoint: .topLeading, endPoint: .bottomTrailing)
-                            } else {
-                                Color.white.opacity(0.16)
-                            }
-                        }
-                    )
-                    .clipShape(Capsule())
-                
-                Spacer(minLength: 0)
-                
-                if hasGuide {
-                    Button {
-                        CyberSoundEngine.shared.playTap()
-                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                        showDetailSheet = true
-                    } label: {
-                        Image(systemName: "info.circle.fill")
-                            .font(.system(size: 16))
-                            .foregroundColor(.cyan.opacity(0.9))
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
+        HStack(spacing: 10) {
+            // THANH ĐÈN LED TRẠNG THÁI BÊN TRÁI
+            RoundedRectangle(cornerRadius: 3)
+                .fill(isOn ? Color.cyan : Color.white.opacity(0.18))
+                .frame(width: 4, height: 34)
+                .shadow(color: isOn ? .cyan : .clear, radius: 5)
             
-            // TÊN CHỨC NĂNG & MÔ TẢ
+            // TÊN & MÔ TẢ GỌN
             VStack(alignment: .leading, spacing: 3) {
-                Text(item.name)
-                    .font(.system(size: 14, weight: .bold, design: .rounded))
-                    .foregroundColor(.white)
-                    .lineLimit(1)
+                HStack(spacing: 5) {
+                    Text(item.name)
+                        .font(.system(size: 13.5, weight: .bold, design: .rounded))
+                        .foregroundColor(.white)
+                        .lineLimit(1)
+                    
+                    Text(badgeLabel)
+                        .font(.system(size: 8, weight: .black, design: .monospaced))
+                        .foregroundColor(isHighlightedBadge ? .black : .white.opacity(0.8))
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1.5)
+                        .background(
+                            isHighlightedBadge
+                            ? AnyView(LinearGradient(colors: [.cyan, .mint], startPoint: .leading, endPoint: .trailing))
+                            : AnyView(Color.white.opacity(0.15))
+                        )
+                        .clipShape(Capsule())
+                }
                 
-                Text(subtitleDisplay)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(isOn ? .cyan.opacity(0.85) : .white.opacity(0.5))
+                Text(busy ? "Đang nạp gói dữ liệu..." : (isOn ? "Đang hoạt động" : subtitleDisplay))
+                    .font(.system(size: 10.5, weight: .medium))
+                    .foregroundColor(busy ? .yellow : (isOn ? .cyan : .white.opacity(0.48)))
                     .lineLimit(1)
             }
             
-            // NÚT KÍCH HOẠT NGUYÊN KHỐI (CHẠM CỰC NHẠY + PHÁT TIẾNG)
-            Button {
-                guard !busy, (hasLink || isOn) else { return }
-                toggleFeature(currentlyOn: isOn)
-            } label: {
-                HStack(spacing: 6) {
-                    if busy {
-                        ProgressView()
-                            .tint(isOn ? .cyan : .black)
-                            .scaleEffect(0.8)
-                        Text("ĐANG NẠP...")
-                            .font(.system(size: 11, weight: .black, design: .monospaced))
-                    } else {
-                        Image(systemName: isOn ? "checkmark.circle.fill" : "power")
-                            .font(.system(size: 11.5, weight: .black))
-                        Text(isOn ? "ĐANG BẬT" : "KÍCH HOẠT")
-                            .font(.system(size: 11, weight: .black, design: .monospaced))
-                            .tracking(0.5)
-                    }
+            Spacer(minLength: 4)
+            
+            // NÚT HDSD NHỎ (NẾU CÓ)
+            if hasGuide {
+                Button {
+                    CyberSoundEngine.shared.playTap()
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    showDetailSheet = true
+                } label: {
+                    Image(systemName: "info.circle")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundColor(.cyan.opacity(0.85))
+                        .frame(width: 28, height: 28)
+                        .background(Color.cyan.opacity(0.1))
+                        .clipShape(Circle())
                 }
-                .foregroundColor(isOn ? .black : .cyan)
-                .frame(maxWidth: .infinity)
-                .frame(height: 32)
-                .background(
-                    Group {
-                        if isOn {
-                            LinearGradient(colors: [.cyan, .mint], startPoint: .leading, endPoint: .trailing)
-                        } else {
-                            Color.cyan.opacity(0.14)
-                        }
-                    }
-                )
-                .clipShape(RoundedRectangle(cornerRadius: 10))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10)
-                        .stroke(isOn ? Color.white.opacity(0.5) : Color.cyan.opacity(0.35), lineWidth: 1)
-                )
+                .buttonStyle(.plain)
             }
-            .buttonStyle(ScaleButtonStyle())
-            .disabled(busy || (!hasLink && !isOn))
+            
+            // CHỈ BÁO BẬT / TẮT GỌN
+            ZStack {
+                if busy {
+                    ProgressView()
+                        .tint(.cyan)
+                        .scaleEffect(0.8)
+                } else {
+                    Image(systemName: isOn ? "checkmark.circle.fill" : "circle")
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundColor(isOn ? .cyan : .white.opacity(0.28))
+                        .shadow(color: isOn ? .cyan.opacity(0.6) : .clear, radius: 5)
+                }
+            }
+            .frame(width: 28, height: 28)
         }
-        .padding(12)
+        .padding(.horizontal, 11)
+        .padding(.vertical, 10)
         .background(
             ZStack {
-                RoundedRectangle(cornerRadius: 18)
-                    .fill(.ultraThinMaterial)
-                RoundedRectangle(cornerRadius: 18)
+                RoundedRectangle(cornerRadius: 15)
                     .fill(
                         LinearGradient(
                             colors: isOn
-                                ? [Color.cyan.opacity(0.16), Color.blue.opacity(0.08)]
-                                : [Color.white.opacity(0.04), Color.black.opacity(0.22)],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
+                                ? [Color.cyan.opacity(0.18), Color.blue.opacity(0.08)]
+                                : [Color.white.opacity(0.06), Color.white.opacity(0.03)],
+                            startPoint: .leading,
+                            endPoint: .trailing
                         )
                     )
                 
-                // TIA LASER QUÉT NGANG KHI KÍCH HOẠT
+                // HIỆU ỨNG LASER QUÉT NGANG KHI KÍCH HOẠT
                 if isOn {
                     LinearGradient(
-                        colors: [.clear, Color.white.opacity(0.28), .clear],
+                        colors: [.clear, Color.white.opacity(0.32), .clear],
                         startPoint: .leading,
                         endPoint: .trailing
                     )
-                    .frame(width: 70)
-                    .rotationEffect(.degrees(20))
+                    .frame(width: 90)
+                    .rotationEffect(.degrees(18))
                     .offset(x: sweepOffset)
                     .allowsHitTesting(false)
                 }
             }
         )
-        .environment(\.colorScheme, .dark)
-        .clipShape(RoundedRectangle(cornerRadius: 18))
+        .clipShape(RoundedRectangle(cornerRadius: 15))
         .overlay(
-            RoundedRectangle(cornerRadius: 18)
+            RoundedRectangle(cornerRadius: 15)
                 .stroke(
-                    isOn ? Color.cyan.opacity(0.9) : Color.white.opacity(0.12),
-                    lineWidth: isOn ? 1.5 : 1
+                    isOn ? Color.cyan.opacity(0.85) : Color.white.opacity(0.1),
+                    lineWidth: isOn ? 1.3 : 1
                 )
         )
-        .shadow(color: isOn ? .cyan.opacity(0.25) : .black.opacity(0.28), radius: 8, y: 4)
-        .opacity(hasLink ? 1 : 0.52)
-        .animation(.spring(response: 0.28, dampingFraction: 0.75), value: isOn)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            guard !busy, (hasLink || isOn) else { return }
+            toggleFeature(currentlyOn: isOn)
+        }
+        .opacity(hasLink ? 1 : 0.48)
+        .animation(.spring(response: 0.25, dampingFraction: 0.78), value: isOn)
         .onChange(of: isOn) { active in
             if active {
-                sweepOffset = -150
-                withAnimation(.easeOut(duration: 0.65)) {
-                    sweepOffset = 180
+                sweepOffset = -220
+                withAnimation(.easeOut(duration: 0.6)) {
+                    sweepOffset = 240
                 }
             }
         }
