@@ -2,9 +2,9 @@ import SwiftUI
 import UIKit
 import AudioToolbox
 
-// MARK: - ÂM THANH "TÍCH" GỐC CỦA HỆ THỐNG IPHONE + TAPTIC ENGINE (0ms LAG)
+// MARK: - ÂM THANH "TÍCH" GỐC CỦA IPHONE + TAPTIC ENGINE (0ms LAG)
 enum iPhoneNativeFeedback {
-    /// Tiếng "Tích" chuẩn iPhone (System Sound 1057 - Tink.caf) + Rung xác nhận
+    /// Tiếng "Tích" gốc của hệ thống iOS (Tink - 1057) + Rung xác nhận
     static func tickOn() {
         AudioServicesPlaySystemSound(1057)
         let generator = UINotificationFeedbackGenerator()
@@ -37,6 +37,36 @@ enum iPhoneNativeFeedback {
     }
 }
 
+// MARK: - HÌNH KHỐI VÁT GÓC 45° ESPORTS HUD (CHAMFERED SHAPE)
+struct CyberChamferShape: InsettableShape {
+    var cut: CGFloat = 10
+    var insetAmount: CGFloat = 0
+    
+    func path(in rect: CGRect) -> Path {
+        let r = rect.insetBy(dx: insetAmount, dy: insetAmount)
+        let c = min(cut, min(r.width, r.height) / 2)
+        var path = Path()
+        
+        // Bắt đầu từ góc trên-trái (vát chéo)
+        path.move(to: CGPoint(x: r.minX + c, y: r.minY))
+        path.addLine(to: CGPoint(x: r.maxX, y: r.minY))
+        path.addLine(to: CGPoint(x: r.maxX, y: r.maxY - c))
+        // Vát chéo góc dưới-phải
+        path.addLine(to: CGPoint(x: r.maxX - c, y: r.maxY))
+        path.addLine(to: CGPoint(x: r.minX, y: r.maxY))
+        path.addLine(to: CGPoint(x: r.minX, y: r.minY + c))
+        path.closeSubpath()
+        
+        return path
+    }
+    
+    func inset(by amount: CGFloat) -> some InsettableShape {
+        var copy = self
+        copy.insetAmount += amount
+        return copy
+    }
+}
+
 // MARK: - CACHE ẢNH RAM SIÊU TỐC
 final class CatalogImageCache {
     static let shared = NSCache<NSString, UIImage>()
@@ -55,7 +85,7 @@ struct SecureCatalogImage: View {
                 Image(uiImage: image)
                     .resizable()
                     .scaledToFill()
-                    .transition(.opacity.animation(.easeInOut(duration: 0.25)))
+                    .transition(.opacity.animation(.easeInOut(duration: 0.22)))
             } else {
                 placeholder
                     .resizable()
@@ -106,14 +136,14 @@ struct SecureCatalogImage: View {
     }
 }
 
-// MARK: - MÀN HÌNH CHÍNH (OBSIDIAN GLASS COMMAND DECK)
+// MARK: - MÀN HÌNH CHÍNH (PITCH-BLACK CYBER HUD)
 struct GameCatalogView: View {
     @StateObject private var store = GameCatalogStore.shared
     @StateObject private var authManager = CustomAuthManager.shared
     @Binding var isTabBarHidden: Bool
     
-    @State private var isRotating = false
-    @State private var auroraPulse = false
+    @State private var spinRing = false
+    @State private var pulseDot = false
     
     private var isSessionActive: Bool {
         authManager.isAuthorized
@@ -132,14 +162,14 @@ struct GameCatalogView: View {
             ZStack {
                 Color.black.ignoresSafeArea()
                 
-                // BACKGROUND ẢNH MỜ SÂU
+                // BACKGROUND MỜ SÂU + LƯỚI TỌA ĐỘ MỜ
                 GeometryReader { geo in
                     SecureCatalogImage(urlString: authManager.publicBackgroundURL, placeholder: Image(systemName: "sparkles"))
                         .frame(width: geo.size.width, height: geo.size.height)
-                        .opacity(0.42)
+                        .opacity(0.32)
                         .overlay(
                             LinearGradient(
-                                colors: [Color.black.opacity(0.4), Color.black.opacity(0.86), Color.black],
+                                colors: [Color.black.opacity(0.4), Color.black.opacity(0.88), Color.black],
                                 startPoint: .top,
                                 endPoint: .bottom
                             )
@@ -147,185 +177,135 @@ struct GameCatalogView: View {
                 }
                 .ignoresSafeArea()
                 
-                // QUẦNG SÁNG AURORA THỞ NHẸ (GPU OPTIMAL)
-                Circle()
-                    .fill(Color.cyan.opacity(auroraPulse ? 0.16 : 0.08))
-                    .frame(width: 300, height: 300)
-                    .blur(radius: 90)
-                    .offset(x: -100, y: -240)
-                    .allowsHitTesting(false)
-                
-                Circle()
-                    .fill(Color.indigo.opacity(auroraPulse ? 0.18 : 0.1))
-                    .frame(width: 280, height: 280)
-                    .blur(radius: 95)
-                    .offset(x: 120, y: 260)
-                    .allowsHitTesting(false)
-                
-                // NỀN HẠT ÁNH SÁNG 60FPS
-                ObsidianParticleCanvas()
+                // HẠT ÁNH SÁNG RƠI NHẸ 60FPS
+                CyberDustCanvas()
                     .ignoresSafeArea()
                     .allowsHitTesting(false)
                 
                 ScrollView(showsIndicators: false) {
-                    VStack(spacing: 18) {
-                        // HERO BENTO CARD GỘP TRẠNG THÁI + AVATAR + THƯƠNG HIỆU
-                        VStack(spacing: 14) {
-                            HStack {
-                                HStack(spacing: 6) {
-                                    Circle()
-                                        .fill(Color.green)
-                                        .frame(width: 6.5, height: 6.5)
-                                        .shadow(color: .green, radius: 5)
-                                    Text("ONLINE")
-                                        .font(.system(size: 9.5, weight: .black, design: .monospaced))
-                                        .tracking(1.1)
-                                        .foregroundColor(.white.opacity(0.85))
-                                }
-                                .padding(.horizontal, 9)
-                                .padding(.vertical, 4)
-                                .background(Color.white.opacity(0.08))
-                                .clipShape(Capsule())
+                    VStack(spacing: 20) {
+                        
+                        // 1. TOP TELEMETRY BAR (GỌN SẮC NÉT)
+                        HStack {
+                            HStack(spacing: 7) {
+                                Circle()
+                                    .fill(Color.white)
+                                    .frame(width: 6, height: 6)
+                                    .scaleEffect(pulseDot ? 1.35 : 0.85)
+                                    .shadow(color: .white, radius: 6)
                                 
-                                Spacer()
-                                
-                                if totalEnabledMods > 0 {
-                                    Button {
-                                        iPhoneNativeFeedback.tickOff()
-                                        store.disableAllEnabledMods()
-                                    } label: {
-                                        HStack(spacing: 4) {
-                                            Image(systemName: "power")
-                                                .font(.system(size: 9, weight: .black))
-                                            Text("TẮT HẾT (\(totalEnabledMods))")
-                                                .font(.system(size: 9.5, weight: .black, design: .monospaced))
-                                        }
-                                        .foregroundColor(.black)
-                                        .padding(.horizontal, 10)
-                                        .padding(.vertical, 4.5)
-                                        .background(LinearGradient(colors: [.white, .cyan], startPoint: .leading, endPoint: .trailing))
-                                        .clipShape(Capsule())
-                                        .shadow(color: .cyan.opacity(0.5), radius: 6)
-                                    }
-                                    .buttonStyle(.plain)
-                                } else {
-                                    Text("READY")
-                                        .font(.system(size: 9.5, weight: .bold, design: .monospaced))
-                                        .tracking(1)
-                                        .foregroundColor(.cyan)
-                                        .padding(.horizontal, 9)
-                                        .padding(.vertical, 4)
-                                        .background(Color.cyan.opacity(0.12))
-                                        .clipShape(Capsule())
-                                }
+                                Text("SYS // ONLINE")
+                                    .font(.system(size: 10, weight: .black, design: .monospaced))
+                                    .tracking(1.4)
+                                    .foregroundColor(.white)
                             }
                             
-                            HStack(spacing: 14) {
-                                ZStack {
-                                    Circle()
-                                        .stroke(
-                                            AngularGradient(colors: [.white, .cyan, .clear, .white], center: .center),
-                                            lineWidth: 2.2
-                                        )
-                                        .frame(width: 74, height: 74)
-                                        .rotationEffect(.degrees(isRotating ? 360 : 0))
-                                        .animation(.linear(duration: 4.5).repeatForever(autoreverses: false), value: isRotating)
-                                        .drawingGroup()
-                                    
-                                    SecureCatalogImage(urlString: authManager.publicAvatarURL, placeholder: Image(systemName: "person.crop.circle.fill"))
-                                        .frame(width: 66, height: 66)
-                                        .clipShape(Circle())
-                                        .overlay(Circle().stroke(Color.white.opacity(0.3), lineWidth: 1))
+                            Spacer()
+                            
+                            if totalEnabledMods > 0 {
+                                Button {
+                                    iPhoneNativeFeedback.tickOff()
+                                    store.disableAllEnabledMods()
+                                } label: {
+                                    HStack(spacing: 5) {
+                                        Image(systemName: "power")
+                                            .font(.system(size: 9.5, weight: .black))
+                                        Text("TẮT HẾT [\(totalEnabledMods)]")
+                                            .font(.system(size: 10, weight: .black, design: .monospaced))
+                                    }
+                                    .foregroundColor(.black)
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 5)
+                                    .background(Color.white)
+                                    .clipShape(CyberChamferShape(cut: 6))
+                                    .shadow(color: .white.opacity(0.5), radius: 8)
                                 }
-                                
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(authManager.publicAppName.isEmpty ? "𝐒𝐨𝐯𝐞𝐫𝐞𝐢𝐠𝐧 𝐒𝐨𝐥𝐢𝐭𝐮𝐝𝐞" : authManager.publicAppName)
-                                        .font(.system(size: 21, weight: .black, design: .rounded))
-                                        .foregroundColor(.white)
-                                        .lineLimit(1)
-                                        .shadow(color: .cyan.opacity(0.35), radius: 8)
-                                    
-                                    Text("Bảng điều khiển tối ưu • Chạm game để mở")
-                                        .font(.system(size: 11.5, weight: .medium))
-                                        .foregroundColor(.white.opacity(0.55))
-                                        .lineLimit(1)
-                                }
-                                
-                                Spacer(minLength: 0)
+                                .buttonStyle(.plain)
+                            } else {
+                                Text("V2.6 // READY")
+                                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                    .tracking(1)
+                                    .foregroundColor(.white.opacity(0.55))
                             }
                         }
-                        .padding(15)
-                        .background(
-                            ZStack {
-                                RoundedRectangle(cornerRadius: 24)
-                                    .fill(.ultraThinMaterial)
-                                RoundedRectangle(cornerRadius: 24)
-                                    .fill(
-                                        LinearGradient(
-                                            colors: [Color.white.opacity(0.08), Color.white.opacity(0.01)],
-                                            startPoint: .topLeading,
-                                            endPoint: .bottomTrailing
-                                        )
-                                    )
-                            }
-                        )
-                        .environment(\.colorScheme, .dark)
-                        .clipShape(RoundedRectangle(cornerRadius: 24))
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                        .background(Color.white.opacity(0.04))
+                        .clipShape(CyberChamferShape(cut: 9))
                         .overlay(
-                            RoundedRectangle(cornerRadius: 24)
-                                .stroke(
-                                    LinearGradient(
-                                        colors: [Color.white.opacity(0.35), Color.cyan.opacity(0.3), Color.white.opacity(0.06)],
-                                        startPoint: .topLeading,
-                                        endPoint: .bottomTrailing
-                                    ),
-                                    lineWidth: 1.1
-                                )
+                            CyberChamferShape(cut: 9)
+                                .strokeBorder(Color.white.opacity(0.22), lineWidth: 1)
                         )
                         .padding(.horizontal, 16)
                         .padding(.top, 12)
                         
-                        // TIÊU ĐỀ DANH SÁCH GAME
-                        HStack {
-                            Text("ỨNG DỤNG KHẢ DỤNG")
-                                .font(.system(size: 10.5, weight: .heavy, design: .monospaced))
-                                .tracking(1.4)
-                                .foregroundColor(.white.opacity(0.55))
-                            Spacer()
-                            Text("\(store.catalog.orderedGames.count)")
-                                .font(.system(size: 10.5, weight: .black, design: .monospaced))
-                                .foregroundColor(.cyan)
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 2)
-                                .background(Color.cyan.opacity(0.14))
-                                .clipShape(Capsule())
-                        }
-                        .padding(.horizontal, 20)
-                        .padding(.bottom, -6)
-                        
-                        // DANH SÁCH GAME
+                        // 2. TRUNG TÂM THƯƠNG HIỆU (HUD RETICLE + AVATAR)
                         VStack(spacing: 12) {
+                            ZStack {
+                                // Vòng quét đứt nét xoay chậm
+                                Circle()
+                                    .stroke(style: StrokeStyle(lineWidth: 1.2, dash: [6, 5]))
+                                    .foregroundColor(.white.opacity(0.45))
+                                    .frame(width: 108, height: 108)
+                                    .rotationEffect(.degrees(spinRing ? 360 : 0))
+                                    .animation(.linear(duration: 12).repeatForever(autoreverses: false), value: spinRing)
+                                    .drawingGroup()
+                                
+                                // Vòng ánh sáng trắng xoay ngược
+                                Circle()
+                                    .stroke(
+                                        AngularGradient(colors: [.white, .clear, .white.opacity(0.7), .clear], center: .center),
+                                        lineWidth: 2.2
+                                    )
+                                    .frame(width: 94, height: 94)
+                                    .rotationEffect(.degrees(spinRing ? -360 : 0))
+                                    .animation(.linear(duration: 4.5).repeatForever(autoreverses: false), value: spinRing)
+                                    .drawingGroup()
+                                
+                                SecureCatalogImage(urlString: authManager.publicAvatarURL, placeholder: Image(systemName: "person.crop.circle.fill"))
+                                    .frame(width: 82, height: 82)
+                                    .clipShape(Circle())
+                                    .overlay(Circle().stroke(Color.white.opacity(0.5), lineWidth: 1))
+                                    .shadow(color: .white.opacity(0.25), radius: 12)
+                            }
+                            
+                            VStack(spacing: 4) {
+                                Text(authManager.publicAppName.isEmpty ? "𝐒𝐨𝐯𝐞𝐫𝐞𝐢𝐠𝐧 𝐒𝐨𝐥𝐢𝐭𝐮𝐝𝐞" : authManager.publicAppName)
+                                    .font(.system(size: 24, weight: .black, design: .rounded))
+                                    .foregroundColor(.white)
+                                    .shadow(color: .white.opacity(0.35), radius: 10)
+                                
+                                Text("CHỌN MỤC TIÊU BÊN DƯỚI ĐỂ KÍCH HOẠT")
+                                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                    .tracking(1.5)
+                                    .foregroundColor(.white.opacity(0.5))
+                            }
+                        }
+                        .padding(.vertical, 4)
+                        
+                        // 3. DANH SÁCH GAME (THẺ VÁT GÓC ESPORTS)
+                        VStack(spacing: 14) {
                             if store.catalog.orderedGames.isEmpty {
                                 VStack(spacing: 10) {
                                     Image(systemName: "gamecontroller")
                                         .font(.system(size: 28))
                                         .foregroundColor(.white.opacity(0.35))
                                     Text("Chưa có trò chơi nào được cấu hình")
-                                        .font(.system(size: 13.5, weight: .medium))
+                                        .font(.system(size: 13, weight: .medium))
                                         .foregroundColor(.white.opacity(0.55))
                                 }
                                 .frame(maxWidth: .infinity)
-                                .padding(.vertical, 40)
-                                .background(Color.white.opacity(0.04))
-                                .clipShape(RoundedRectangle(cornerRadius: 22))
-                                .overlay(RoundedRectangle(cornerRadius: 22).stroke(Color.white.opacity(0.12), lineWidth: 1))
+                                .padding(.vertical, 42)
+                                .background(Color.white.opacity(0.03))
+                                .clipShape(CyberChamferShape(cut: 14))
+                                .overlay(CyberChamferShape(cut: 14).strokeBorder(Color.white.opacity(0.18), lineWidth: 1))
                                 .padding(.horizontal, 16)
                             } else {
                                 ForEach(store.catalog.orderedGames) { game in
                                     NavigationLink(destination: GameDetailView(gameID: game.id, isTabBarHidden: $isTabBarHidden)) {
-                                        ObsidianGameCard(game: game)
+                                        CyberGameDeckCard(game: game)
                                     }
-                                    .buttonStyle(TactileBounceStyle())
+                                    .buttonStyle(CyberPressStyle())
                                     .disabled(!isSessionActive)
                                     .simultaneousGesture(TapGesture().onEnded {
                                         guard isSessionActive else { return }
@@ -344,9 +324,9 @@ struct GameCatalogView: View {
             }
             .toolbar(.hidden, for: .navigationBar)
             .onAppear {
-                isRotating = true
-                withAnimation(.easeInOut(duration: 3.0).repeatForever(autoreverses: true)) {
-                    auroraPulse = true
+                spinRing = true
+                withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) {
+                    pulseDot = true
                 }
                 store.rememberCatalogItems()
                 if !authManager.isAuthorized || store.catalog.resolvedMaintenanceEnabled {
@@ -372,10 +352,11 @@ struct GameCatalogView: View {
     }
 }
 
-// MARK: - THẺ GAME TRÊN MÀN HÌNH CHÍNH
-private struct ObsidianGameCard: View {
+// MARK: - THẺ GAME TRÊN MÀN HÌNH CHÍNH (PHONG CÁCH ESPORTS HUD)
+private struct CyberGameDeckCard: View {
     let game: GameCatalogGame
     @StateObject private var store = GameCatalogStore.shared
+    @State private var arrowPhase = false
     
     private var activeVisibleItemsCount: Int {
         game.items.filter { $0.hidden != true }.count
@@ -390,133 +371,143 @@ private struct ObsidianGameCard: View {
     
     var body: some View {
         HStack(spacing: 14) {
+            // ICON GAME VÁT GÓC VIỀN TRẮNG PHÁT SÁNG
             ZStack {
                 SecureCatalogImage(urlString: game.iconURL ?? "", placeholder: Image(systemName: "gamecontroller.fill"))
-                    .frame(width: 58, height: 58)
-                    .clipShape(RoundedRectangle(cornerRadius: 17))
+                    .frame(width: 62, height: 62)
+                    .clipShape(CyberChamferShape(cut: 11))
                     .overlay(
-                        RoundedRectangle(cornerRadius: 17)
-                            .stroke(
-                                LinearGradient(colors: [.white.opacity(0.5), .cyan.opacity(0.6)], startPoint: .topLeading, endPoint: .bottomTrailing),
-                                lineWidth: 1.3
-                            )
+                        CyberChamferShape(cut: 11)
+                            .strokeBorder(Color.white.opacity(0.65), lineWidth: 1.3)
                     )
-                    .shadow(color: .cyan.opacity(0.25), radius: 8)
+                    .shadow(color: .white.opacity(0.22), radius: 8)
             }
             
-            VStack(alignment: .leading, spacing: 5) {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 6) {
+                    Text("TARGET")
+                        .font(.system(size: 8.5, weight: .black, design: .monospaced))
+                        .foregroundColor(.black)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color.white)
+                        .clipShape(CyberChamferShape(cut: 4))
+                    
+                    if enabledModCount > 0 {
+                        Text("\(enabledModCount) ACTIVE")
+                            .font(.system(size: 8.5, weight: .black, design: .monospaced))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color.white.opacity(0.18))
+                            .clipShape(CyberChamferShape(cut: 4))
+                    }
+                }
+                
                 Text(game.name)
-                    .font(.system(size: 17.5, weight: .bold, design: .rounded))
+                    .font(.system(size: 18, weight: .black, design: .rounded))
                     .foregroundColor(.white)
                     .lineLimit(1)
                 
-                HStack(spacing: 8) {
-                    Label("\(activeVisibleItemsCount) tính năng", systemImage: "square.grid.2x2")
-                        .font(.system(size: 11.5, weight: .medium))
-                        .foregroundColor(.white.opacity(0.58))
-                    
-                    if enabledModCount > 0 {
-                        Text("• \(enabledModCount) bật")
-                            .font(.system(size: 11.5, weight: .bold))
-                            .foregroundColor(.cyan)
-                    }
+                Text("\(activeVisibleItemsCount) mô-đun chức năng sẵn sàng")
+                    .font(.system(size: 11.5, weight: .medium))
+                    .foregroundColor(.white.opacity(0.55))
+            }
+            
+            Spacer(minLength: 4)
+            
+            // NÚT TRUY CẬP >>> ĐỘNG
+            HStack(spacing: -3) {
+                ForEach(0..<3, id: \.self) { idx in
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 12, weight: .black))
+                        .foregroundColor(.black)
+                        .opacity(arrowPhase ? (idx == 2 ? 1.0 : 0.45) : (idx == 0 ? 1.0 : 0.45))
                 }
             }
-            
-            Spacer()
-            
-            HStack(spacing: 5) {
-                Text("MỞ")
-                    .font(.system(size: 11, weight: .black, design: .monospaced))
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 11, weight: .black))
-            }
-            .foregroundColor(.black)
-            .padding(.horizontal, 13)
-            .padding(.vertical, 8.5)
-            .background(LinearGradient(colors: [.white, .cyan], startPoint: .topLeading, endPoint: .bottomTrailing))
-            .clipShape(Capsule())
-            .shadow(color: .cyan.opacity(0.45), radius: 8)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 12)
+            .background(Color.white)
+            .clipShape(CyberChamferShape(cut: 8))
+            .shadow(color: .white.opacity(0.45), radius: 8)
         }
         .padding(14)
         .background(
             ZStack {
-                RoundedRectangle(cornerRadius: 22)
-                    .fill(.ultraThinMaterial)
-                RoundedRectangle(cornerRadius: 22)
-                    .fill(
-                        LinearGradient(
-                            colors: [Color.white.opacity(0.07), Color.white.opacity(0.015)],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
+                Color.white.opacity(0.04)
+                LinearGradient(
+                    colors: [Color.white.opacity(0.08), Color.clear],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
             }
         )
-        .environment(\.colorScheme, .dark)
-        .clipShape(RoundedRectangle(cornerRadius: 22))
+        .clipShape(CyberChamferShape(cut: 16))
         .overlay(
-            RoundedRectangle(cornerRadius: 22)
-                .stroke(
+            CyberChamferShape(cut: 16)
+                .strokeBorder(
                     LinearGradient(
-                        colors: [Color.white.opacity(0.32), Color.cyan.opacity(0.35), Color.white.opacity(0.06)],
+                        colors: [Color.white.opacity(0.55), Color.white.opacity(0.12), Color.white.opacity(0.35)],
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
                     ),
-                    lineWidth: 1.1
+                    lineWidth: 1.2
                 )
         )
+        .onAppear {
+            withAnimation(.easeInOut(duration: 0.7).repeatForever(autoreverses: true)) {
+                arrowPhase = true
+            }
+        }
     }
 }
 
-// MARK: - HIỆU ỨNG NHÚN TACTILE KHI CHẠM
-struct TactileBounceStyle: ButtonStyle {
+// MARK: - HIỆU ỨNG NHÚN TACTILE
+struct CyberPressStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .scaleEffect(configuration.isPressed ? 0.965 : 1.0)
-            .animation(.spring(response: 0.22, dampingFraction: 0.68), value: configuration.isPressed)
+            .animation(.spring(response: 0.2, dampingFraction: 0.7), value: configuration.isPressed)
     }
 }
 
-// MARK: - NỀN HẠT ÁNH SÁNG 60FPS NHẸ MÁY
-struct ObsidianParticle: Identifiable {
+// MARK: - HẠT ÁNH SÁNG RƠI NHẸ (60FPS GPU)
+struct CyberDustParticle: Identifiable {
     let id = UUID()
     var x: CGFloat
     var y: CGFloat
     var size: CGFloat
     var speed: CGFloat
     var opacity: Double
-    var isCyan: Bool
 }
 
-struct ObsidianParticleCanvas: View {
-    @State private var particles: [ObsidianParticle] = []
+struct CyberDustCanvas: View {
+    @State private var dots: [CyberDustParticle] = []
     
     var body: some View {
         GeometryReader { geo in
             TimelineView(.animation) { timeline in
                 Canvas { context, size in
                     let time = timeline.date.timeIntervalSinceReferenceDate
-                    for p in particles {
-                        let yPos = (p.y + CGFloat(time) * p.speed).truncatingRemainder(dividingBy: size.height + 40)
-                        let xPos = p.x + sin(CGFloat(time) * 1.15 + p.y * 0.04) * 10
-                        context.opacity = p.opacity
-                        let rect = CGRect(x: xPos, y: yPos, width: p.size, height: p.size)
-                        context.fill(Path(ellipseIn: rect), with: .color(p.isCyan ? .cyan : .white))
+                    for dot in dots {
+                        let yPos = (dot.y + CGFloat(time) * dot.speed).truncatingRemainder(dividingBy: size.height + 40)
+                        let xPos = dot.x + sin(CGFloat(time) * 1.1 + dot.y * 0.04) * 8
+                        context.opacity = dot.opacity
+                        let rect = CGRect(x: xPos, y: yPos, width: dot.size, height: dot.size)
+                        context.fill(Path(rect), with: .color(.white))
                     }
                 }
             }
             .onAppear {
-                guard particles.isEmpty else { return }
-                for i in 0..<24 {
-                    particles.append(
-                        ObsidianParticle(
+                guard dots.isEmpty else { return }
+                for _ in 0..<24 {
+                    dots.append(
+                        CyberDustParticle(
                             x: CGFloat.random(in: 0...geo.size.width),
                             y: CGFloat.random(in: 0...geo.size.height),
-                            size: CGFloat.random(in: 1.5...3.4),
-                            speed: CGFloat.random(in: 14...28),
-                            opacity: Double.random(in: 0.16...0.52),
-                            isCyan: i % 3 == 0
+                            size: CGFloat.random(in: 1.5...3.0),
+                            speed: CGFloat.random(in: 14...26),
+                            opacity: Double.random(in: 0.14...0.5)
                         )
                     )
                 }
@@ -525,7 +516,7 @@ struct ObsidianParticleCanvas: View {
     }
 }
 
-// MARK: - MÀN HÌNH CHI TIẾT GAME (LƯỚI BENTO SIÊU GỌN - HIỆN 8-10 MỤC CÙNG LÚC)
+// MARK: - MÀN HÌNH CHI TIẾT GAME (COMMAND MATRIX 2 CỘT + LASER RAIL TABS)
 private struct GameDetailView: View {
     let gameID: String
     @Binding var isTabBarHidden: Bool
@@ -533,9 +524,10 @@ private struct GameDetailView: View {
     @StateObject private var authManager = CustomAuthManager.shared
     @State private var selectedTabID = "aim"
     @State private var searchText = ""
-    @State private var showSearchBar = false
-    @State private var onlyActiveFilter = false
-    @Namespace private var tabNamespace
+    @State private var showSearch = false
+    @State private var onlyActive = false
+    @State private var launchChevronPulse = false
+    @Namespace private var laserRail
     @Environment(\.dismiss) private var dismiss
 
     private var catalog: GameCatalog { store.catalog }
@@ -552,7 +544,7 @@ private struct GameDetailView: View {
         return (game?.items ?? [])
             .filter { $0.hidden != true && $0.category.rawValue == selectedTabID }
             .filter { item in
-                if onlyActiveFilter && !store.isMultiItemOn(item: item) { return false }
+                if onlyActive && !store.isMultiItemOn(item: item) { return false }
                 if q.isEmpty { return true }
                 return item.name.lowercased().contains(q)
                     || (item.subtitle ?? "").lowercased().contains(q)
@@ -574,7 +566,7 @@ private struct GameDetailView: View {
         return ownTabs.filter { selected.contains($0.id) }
     }
     
-    private let columns = [
+    private let gridColumns = [
         GridItem(.flexible(), spacing: 9),
         GridItem(.flexible(), spacing: 9)
     ]
@@ -586,10 +578,10 @@ private struct GameDetailView: View {
             GeometryReader { geo in
                 SecureCatalogImage(urlString: authManager.publicBackgroundURL, placeholder: Image(systemName: "photo"))
                     .frame(width: geo.size.width, height: geo.size.height)
-                    .opacity(0.36)
+                    .opacity(0.28)
                     .overlay(
                         LinearGradient(
-                            colors: [Color.black.opacity(0.5), Color.black.opacity(0.9), Color.black],
+                            colors: [Color.black.opacity(0.45), Color.black.opacity(0.92), Color.black],
                             startPoint: .top,
                             endPoint: .bottom
                         )
@@ -598,7 +590,7 @@ private struct GameDetailView: View {
             .ignoresSafeArea()
             
             VStack(spacing: 10) {
-                // 1. HEADER SIÊU GỌN
+                // 1. TOP HUD BAR SIÊU GỌN
                 HStack(spacing: 10) {
                     Button {
                         iPhoneNativeFeedback.tap()
@@ -606,98 +598,93 @@ private struct GameDetailView: View {
                         dismiss()
                     } label: {
                         Image(systemName: "chevron.left")
-                            .font(.system(size: 14, weight: .bold))
+                            .font(.system(size: 14, weight: .black))
                             .foregroundColor(.white)
                             .frame(width: 36, height: 36)
-                            .background(Color.white.opacity(0.08))
-                            .clipShape(Circle())
-                            .overlay(Circle().stroke(Color.white.opacity(0.18), lineWidth: 1))
+                            .background(Color.white.opacity(0.06))
+                            .clipShape(CyberChamferShape(cut: 8))
+                            .overlay(CyberChamferShape(cut: 8).strokeBorder(Color.white.opacity(0.25), lineWidth: 1))
                     }
                     
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(game?.name ?? "Danh sách Mod")
-                            .font(.system(size: 17.5, weight: .black, design: .rounded))
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(game?.name.uppercased() ?? "COMMAND MATRIX")
+                            .font(.system(size: 16.5, weight: .black, design: .rounded))
                             .foregroundColor(.white)
                             .lineLimit(1)
                         
-                        HStack(spacing: 5) {
-                            Circle()
-                                .fill(activeCountInGame > 0 ? Color.cyan : Color.white.opacity(0.35))
-                                .frame(width: 5.5, height: 5.5)
-                            Text(activeCountInGame > 0 ? "Đang bật \(activeCountInGame) tính năng" : "Chạm ô để kích hoạt")
-                                .font(.system(size: 11, weight: .semibold))
-                                .foregroundColor(activeCountInGame > 0 ? .cyan : .white.opacity(0.5))
-                        }
+                        Text(activeCountInGame > 0 ? "ACTIVE: \(activeCountInGame) MÔ-ĐUN" : "SYSTEM STANDBY")
+                            .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                            .tracking(1)
+                            .foregroundColor(activeCountInGame > 0 ? .white : .white.opacity(0.45))
                     }
                     
                     Spacer()
                     
-                    // Nút tắt nhanh toàn bộ khi đang bật >= 1 mod
+                    // Nút Tắt hết
                     if activeCountInGame > 0 {
                         Button {
                             iPhoneNativeFeedback.tickOff()
                             store.disableAllEnabledMods()
                         } label: {
-                            Text("Tắt hết")
-                                .font(.system(size: 11, weight: .bold))
-                                .foregroundColor(.white.opacity(0.9))
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 7)
-                                .background(Color.red.opacity(0.28))
-                                .clipShape(Capsule())
-                                .overlay(Capsule().stroke(Color.red.opacity(0.55), lineWidth: 1))
+                            Text("OFF ALL")
+                                .font(.system(size: 10, weight: .black, design: .monospaced))
+                                .foregroundColor(.black)
+                                .padding(.horizontal, 9)
+                                .padding(.vertical, 8)
+                                .background(Color.white)
+                                .clipShape(CyberChamferShape(cut: 6))
                         }
                         .buttonStyle(.plain)
                     }
                     
-                    // Nút lọc "Đang bật"
+                    // Nút lọc Đang bật
                     Button {
                         iPhoneNativeFeedback.tap()
-                        withAnimation(.spring(response: 0.26, dampingFraction: 0.78)) {
-                            onlyActiveFilter.toggle()
+                        withAnimation(.spring(response: 0.25, dampingFraction: 0.78)) {
+                            onlyActive.toggle()
                         }
                     } label: {
                         Text("\(activeCountInGame)")
                             .font(.system(size: 11.5, weight: .black, design: .monospaced))
-                            .foregroundColor(onlyActiveFilter ? .black : .cyan)
+                            .foregroundColor(onlyActive ? .black : .white)
                             .frame(width: 34, height: 34)
-                            .background(onlyActiveFilter ? Color.cyan : Color.cyan.opacity(0.12))
-                            .clipShape(Circle())
-                            .overlay(Circle().stroke(Color.cyan.opacity(0.45), lineWidth: 1))
+                            .background(onlyActive ? Color.white : Color.white.opacity(0.06))
+                            .clipShape(CyberChamferShape(cut: 7))
+                            .overlay(CyberChamferShape(cut: 7).strokeBorder(Color.white.opacity(0.35), lineWidth: 1))
                     }
                     .buttonStyle(.plain)
                     
-                    // Nút tìm kiếm nhanh
+                    // Nút Tìm kiếm
                     Button {
                         iPhoneNativeFeedback.tap()
-                        withAnimation(.spring(response: 0.26, dampingFraction: 0.78)) {
-                            showSearchBar.toggle()
-                            if !showSearchBar { searchText = "" }
+                        withAnimation(.spring(response: 0.25, dampingFraction: 0.78)) {
+                            showSearch.toggle()
+                            if !showSearch { searchText = "" }
                         }
                     } label: {
-                        Image(systemName: showSearchBar ? "xmark" : "magnifyingglass")
-                            .font(.system(size: 13.5, weight: .bold))
+                        Image(systemName: showSearch ? "xmark" : "magnifyingglass")
+                            .font(.system(size: 13, weight: .bold))
                             .foregroundColor(.white)
                             .frame(width: 34, height: 34)
-                            .background(Color.white.opacity(0.08))
-                            .clipShape(Circle())
-                            .overlay(Circle().stroke(Color.white.opacity(0.18), lineWidth: 1))
+                            .background(Color.white.opacity(0.06))
+                            .clipShape(CyberChamferShape(cut: 7))
+                            .overlay(CyberChamferShape(cut: 7).strokeBorder(Color.white.opacity(0.25), lineWidth: 1))
                     }
                     .buttonStyle(.plain)
                 }
-                .padding(.horizontal, 15)
+                .padding(.horizontal, 14)
                 .padding(.top, 8)
                 
                 // THANH TÌM KIẾM THU GỌN
-                if showSearchBar {
+                if showSearch {
                     HStack(spacing: 8) {
                         Image(systemName: "magnifyingglass")
                             .font(.system(size: 12))
-                            .foregroundColor(.cyan)
-                        TextField("Tìm tên tính năng...", text: $searchText)
-                            .font(.system(size: 13))
+                            .foregroundColor(.white.opacity(0.7))
+                        TextField("Nhập tên mô-đun...", text: $searchText)
+                            .font(.system(size: 12.5, design: .monospaced))
                             .foregroundColor(.white)
-                            .tint(.cyan)
+                            .tint(.white)
                         if !searchText.isEmpty {
                             Button { searchText = "" } label: {
                                 Image(systemName: "xmark.circle.fill")
@@ -707,75 +694,77 @@ private struct GameDetailView: View {
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
-                    .background(Color.white.opacity(0.07))
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
-                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.15), lineWidth: 1))
-                    .padding(.horizontal, 15)
+                    .background(Color.white.opacity(0.05))
+                    .clipShape(CyberChamferShape(cut: 8))
+                    .overlay(CyberChamferShape(cut: 8).strokeBorder(Color.white.opacity(0.25), lineWidth: 1))
+                    .padding(.horizontal, 14)
                     .transition(.move(edge: .top).combined(with: .opacity))
                 }
                 
-                // 2. THANH TAB VIÊN THUỐC CÂN ĐỐI (KHÔNG TRÀN MÀN HÌNH)
+                // 2. THANH DANH MỤC LASER RAIL (KHÔNG TRÀN MÀN HÌNH)
                 Group {
                     if availableTabs.count <= 3 {
-                        HStack(spacing: 4) {
+                        HStack(spacing: 0) {
                             ForEach(availableTabs) { tab in
-                                tabPillView(tab: tab, stretch: true)
+                                laserTabButton(tab: tab, stretch: true)
                             }
                         }
-                        .padding(3.5)
-                        .background(Color.white.opacity(0.06))
-                        .clipShape(Capsule())
-                        .overlay(Capsule().stroke(Color.white.opacity(0.14), lineWidth: 1))
-                        .padding(.horizontal, 15)
+                        .padding(.horizontal, 14)
                     } else {
                         ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 6) {
+                            HStack(spacing: 14) {
                                 ForEach(availableTabs) { tab in
-                                    tabPillView(tab: tab, stretch: false)
+                                    laserTabButton(tab: tab, stretch: false)
                                 }
                             }
-                            .padding(.horizontal, 15)
+                            .padding(.horizontal, 14)
                         }
                     }
                 }
+                .overlay(
+                    Rectangle()
+                        .frame(height: 1)
+                        .foregroundColor(Color.white.opacity(0.12)),
+                    alignment: .bottom
+                )
                 
-                // 3. LƯỚI BENTO 2 CỘT SIÊU GỌN (8–10 Ô TRÊN 1 MÀN HÌNH)
+                // 3. LƯỚI MÔ-ĐUN 2 CỘT VÁT GÓC SIÊU GỌN
                 ScrollView(showsIndicators: false) {
                     if items.isEmpty {
                         VStack(spacing: 10) {
-                            Image(systemName: "tray")
+                            Image(systemName: "square.dashed")
                                 .font(.system(size: 26))
                                 .foregroundColor(.white.opacity(0.3))
-                            Text(onlyActiveFilter ? "Chưa có tính năng nào đang bật" : "Chưa có chức năng trong mục này")
-                                .font(.system(size: 13, weight: .medium))
-                                .foregroundColor(.white.opacity(0.5))
+                            Text(onlyActive ? "CHƯA CÓ MÔ-ĐUN NÀO ĐANG BẬT" : "DANH MỤC TRỐNG")
+                                .font(.system(size: 11.5, weight: .bold, design: .monospaced))
+                                .foregroundColor(.white.opacity(0.45))
                         }
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 44)
-                        .background(Color.white.opacity(0.04))
-                        .clipShape(RoundedRectangle(cornerRadius: 18))
-                        .overlay(RoundedRectangle(cornerRadius: 18).stroke(Color.white.opacity(0.1), lineWidth: 1))
-                        .padding(.horizontal, 15)
+                        .padding(.vertical, 48)
+                        .background(Color.white.opacity(0.03))
+                        .clipShape(CyberChamferShape(cut: 14))
+                        .overlay(CyberChamferShape(cut: 14).strokeBorder(Color.white.opacity(0.14), lineWidth: 1))
+                        .padding(.horizontal, 14)
                         .padding(.top, 8)
                     } else {
-                        LazyVGrid(columns: columns, spacing: 9) {
+                        LazyVGrid(columns: gridColumns, spacing: 9) {
                             ForEach(items) { item in
-                                CompactObsidianTile(item: item)
+                                CyberModMatrixCell(item: item)
                             }
                         }
-                        .padding(.horizontal, 15)
-                        .padding(.top, 2)
-                        .padding(.bottom, 20)
+                        .padding(.horizontal, 14)
+                        .padding(.top, 4)
+                        .padding(.bottom, 22)
                     }
                 }
             }
-            // DOCK KHỞI ĐỘNG GAME NỔI GỌN Ở ĐÁY
+            // DOCK KHỞI ĐỘNG GAME VÁT GÓC NỔI Ở ĐÁY
             .safeAreaInset(edge: .bottom) {
                 HStack(spacing: 10) {
                     SecureCatalogImage(urlString: game?.iconURL ?? "", placeholder: Image(systemName: "gamecontroller.fill"))
-                        .frame(width: 42, height: 42)
-                        .clipShape(Circle())
-                        .overlay(Circle().stroke(Color.white.opacity(0.3), lineWidth: 1.2))
+                        .frame(width: 44, height: 44)
+                        .clipShape(CyberChamferShape(cut: 9))
+                        .overlay(CyberChamferShape(cut: 9).strokeBorder(Color.white.opacity(0.5), lineWidth: 1))
                     
                     Button {
                         guard isSessionActive else { return }
@@ -785,38 +774,48 @@ private struct GameDetailView: View {
                             UIApplication.shared.open(url)
                         }
                     } label: {
-                        HStack(spacing: 7) {
+                        HStack(spacing: 8) {
                             Image(systemName: "play.fill")
-                                .font(.system(size: 13.5, weight: .black))
+                                .font(.system(size: 13, weight: .black))
                             Text("KHỞI ĐỘNG GAME")
                                 .font(.system(size: 14, weight: .black, design: .monospaced))
-                                .tracking(0.8)
+                                .tracking(1)
+                            
+                            HStack(spacing: -3) {
+                                ForEach(0..<3, id: \.self) { idx in
+                                    Image(systemName: "chevron.right")
+                                        .font(.system(size: 11, weight: .black))
+                                        .opacity(launchChevronPulse ? (idx == 2 ? 1.0 : 0.35) : (idx == 0 ? 1.0 : 0.35))
+                                }
+                            }
                         }
                         .foregroundColor(.black)
                         .frame(maxWidth: .infinity)
                         .frame(height: 44)
-                        .background(
-                            LinearGradient(colors: [.white, .cyan], startPoint: .leading, endPoint: .trailing)
-                        )
-                        .clipShape(Capsule())
-                        .shadow(color: .cyan.opacity(0.45), radius: 10, y: 3)
+                        .background(Color.white)
+                        .clipShape(CyberChamferShape(cut: 10))
+                        .shadow(color: .white.opacity(0.45), radius: 10)
                     }
-                    .buttonStyle(TactileBounceStyle())
+                    .buttonStyle(CyberPressStyle())
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 7)
-                .background(.ultraThinMaterial)
-                .environment(\.colorScheme, .dark)
-                .clipShape(Capsule())
-                .overlay(Capsule().stroke(Color.white.opacity(0.18), lineWidth: 1))
-                .padding(.horizontal, 15)
-                .padding(.bottom, 4)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .background(Color.black.opacity(0.92))
+                .overlay(
+                    Rectangle()
+                        .frame(height: 1)
+                        .foregroundColor(Color.white.opacity(0.16)),
+                    alignment: .top
+                )
             }
         }
         .disabled(!isSessionActive)
         .allowsHitTesting(isSessionActive)
         .navigationBarHidden(true)
         .onAppear {
+            withAnimation(.easeInOut(duration: 0.65).repeatForever(autoreverses: true)) {
+                launchChevronPulse = true
+            }
             store.rememberCatalogItems()
             if store.catalog.resolvedMaintenanceEnabled {
                 store.disableAllEnabledMods()
@@ -849,7 +848,7 @@ private struct GameDetailView: View {
     }
     
     @ViewBuilder
-    private func tabPillView(tab: GameCatalogTab, stretch: Bool) -> some View {
+    private func laserTabButton(tab: GameCatalogTab, stretch: Bool) -> some View {
         let isSelected = selectedTabID == tab.id
         Button {
             iPhoneNativeFeedback.tap()
@@ -857,38 +856,38 @@ private struct GameDetailView: View {
                 selectedTabID = tab.id
             }
         } label: {
-            HStack(spacing: 4) {
-                Image(systemName: tab.icon)
-                    .font(.system(size: 11, weight: .bold))
-                Text(tab.title)
-                    .font(.system(size: 11.5, weight: .bold, design: .rounded))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-            }
-            .foregroundColor(isSelected ? .black : .white.opacity(0.75))
-            .frame(maxWidth: stretch ? .infinity : nil)
-            .padding(.horizontal, stretch ? 6 : 13)
-            .padding(.vertical, 8)
-            .background(
+            VStack(spacing: 8) {
+                HStack(spacing: 5) {
+                    Image(systemName: tab.icon)
+                        .font(.system(size: 11, weight: .bold))
+                    Text(tab.title.uppercased())
+                        .font(.system(size: 11.5, weight: .black, design: .monospaced))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
+                }
+                .foregroundColor(isSelected ? .white : .white.opacity(0.45))
+                .frame(maxWidth: stretch ? .infinity : nil)
+                .padding(.top, 6)
+                
+                // THANH LASER SÁNG TRƯỢT DƯỚI CHÂN TAB
                 ZStack {
+                    Color.clear.frame(height: 2.5)
                     if isSelected {
-                        Capsule()
-                            .fill(LinearGradient(colors: [.white, .cyan], startPoint: .topLeading, endPoint: .bottomTrailing))
-                            .matchedGeometryEffect(id: "TAB_PILL_HIGHLIGHT", in: tabNamespace)
-                            .shadow(color: .cyan.opacity(0.45), radius: 6)
-                    } else if !stretch {
-                        Capsule()
-                            .fill(Color.white.opacity(0.07))
+                        Rectangle()
+                            .fill(Color.white)
+                            .frame(height: 2.5)
+                            .shadow(color: .white, radius: 5)
+                            .matchedGeometryEffect(id: "LASER_TAB_LINE", in: laserRail)
                     }
                 }
-            )
+            }
         }
         .buttonStyle(.plain)
     }
 }
 
-// MARK: - Ô CHỨC NĂNG BENTO SIÊU GỌN (SÓNG XUNG KÍCH + QUÉT SÁNG + TIẾNG TÍCH IPHONE)
-private struct CompactObsidianTile: View {
+// MARK: - Ô MÔ-ĐUN CHỨC NĂNG VÁT GÓC (CHAMFERED MATRIX CELL + TIẾNG TÍCH IPHONE)
+private struct CyberModMatrixCell: View {
     let item: GameCatalogItem
     @StateObject private var store = GameCatalogStore.shared
     @StateObject private var authManager = CustomAuthManager.shared
@@ -896,8 +895,6 @@ private struct CompactObsidianTile: View {
     @State private var showErrorAlert = false
     @State private var errorMessage = ""
     @State private var sweepOffset: CGFloat = -150
-    @State private var rippleScale: CGFloat = 0.7
-    @State private var rippleOpacity: Double = 0.0
     
     private var isSessionActive: Bool {
         authManager.isAuthorized
@@ -929,7 +926,7 @@ private struct CompactObsidianTile: View {
     
     private var subtitleDisplay: String {
         let cleanSub = (item.subtitle ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        return cleanSub.isEmpty ? "Chạm để bật" : cleanSub
+        return cleanSub.isEmpty ? "CHẠM ĐỂ BẬT" : cleanSub
     }
     
     var body: some View {
@@ -937,42 +934,34 @@ private struct CompactObsidianTile: View {
         let isOn = store.isMultiItemOn(item: item)
         let busy = store.isMultiItemBusy(item: item)
         
-        VStack(alignment: .leading, spacing: 7) {
-            // HÀNG TRÊN: NÚT TRẠNG THÁI + SÓNG XUNG KÍCH + BADGE + HDSD
+        VStack(alignment: .leading, spacing: 6) {
+            // HÀNG TRÊN: ĐÈN LED + NHÃN + HDSD
             HStack(spacing: 6) {
+                // Đèn LED trạng thái vuông vát góc
                 ZStack {
-                    Circle()
-                        .stroke(Color.cyan, lineWidth: 1.5)
-                        .frame(width: 24, height: 24)
-                        .scaleEffect(rippleScale)
-                        .opacity(rippleOpacity)
-                    
-                    Circle()
-                        .fill(isOn ? Color.cyan : Color.white.opacity(0.09))
-                        .frame(width: 24, height: 24)
+                    CyberChamferShape(cut: 4)
+                        .fill(isOn ? Color.white : Color.white.opacity(0.08))
+                        .frame(width: 22, height: 22)
+                        .shadow(color: isOn ? .white.opacity(0.75) : .clear, radius: 5)
                     
                     if busy {
                         ProgressView()
-                            .tint(isOn ? .black : .cyan)
-                            .scaleEffect(0.65)
+                            .tint(isOn ? .black : .white)
+                            .scaleEffect(0.6)
                     } else {
                         Image(systemName: isOn ? "checkmark" : "power")
-                            .font(.system(size: 10.5, weight: .black))
-                            .foregroundColor(isOn ? .black : .white.opacity(0.7))
+                            .font(.system(size: 10, weight: .black))
+                            .foregroundColor(isOn ? .black : .white.opacity(0.65))
                     }
                 }
                 
                 Text(badgeLabel)
                     .font(.system(size: 8, weight: .black, design: .monospaced))
                     .foregroundColor(isHighlightedBadge ? .black : .white.opacity(0.8))
-                    .padding(.horizontal, 6)
+                    .padding(.horizontal, 5.5)
                     .padding(.vertical, 2)
-                    .background(
-                        isHighlightedBadge
-                        ? AnyView(LinearGradient(colors: [.white, .cyan], startPoint: .leading, endPoint: .trailing))
-                        : AnyView(Color.white.opacity(0.14))
-                    )
-                    .clipShape(Capsule())
+                    .background(isHighlightedBadge ? Color.white : Color.white.opacity(0.14))
+                    .clipShape(CyberChamferShape(cut: 3))
                 
                 Spacer(minLength: 0)
                 
@@ -982,7 +971,7 @@ private struct CompactObsidianTile: View {
                         showDetailSheet = true
                     } label: {
                         Image(systemName: "info.circle")
-                            .font(.system(size: 14, weight: .semibold))
+                            .font(.system(size: 13.5, weight: .semibold))
                             .foregroundColor(.white.opacity(0.75))
                     }
                     .buttonStyle(.plain)
@@ -992,79 +981,75 @@ private struct CompactObsidianTile: View {
             Spacer(minLength: 0)
             
             // HÀNG DƯỚI: TÊN CHỨC NĂNG + TRẠNG THÁI
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 2.5) {
                 Text(item.name)
-                    .font(.system(size: 13, weight: .bold, design: .rounded))
+                    .font(.system(size: 12.8, weight: .bold, design: .rounded))
                     .foregroundColor(.white)
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
                     .fixedSize(horizontal: false, vertical: true)
                 
-                Text(busy ? "Đang nạp..." : (isOn ? "Đang hoạt động" : subtitleDisplay))
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundColor(busy ? .yellow : (isOn ? .cyan : .white.opacity(0.45)))
-                    .lineLimit(1)
+                HStack(spacing: 4) {
+                    Circle()
+                        .fill(busy ? Color.yellow : (isOn ? Color.white : Color.white.opacity(0.3)))
+                        .frame(width: 4.5, height: 4.5)
+                    
+                    Text(busy ? "ĐANG NẠP..." : (isOn ? "ON // ACTIVE" : subtitleDisplay))
+                        .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                        .foregroundColor(busy ? .yellow : (isOn ? .white : .white.opacity(0.45)))
+                        .lineLimit(1)
+                }
             }
         }
-        .padding(10.5)
-        .frame(maxWidth: .infinity, minHeight: 86, alignment: .leading)
+        .padding(10)
+        .frame(maxWidth: .infinity, minHeight: 82, alignment: .leading)
         .background(
             ZStack {
-                RoundedRectangle(cornerRadius: 17)
-                    .fill(.ultraThinMaterial)
-                RoundedRectangle(cornerRadius: 17)
-                    .fill(
-                        LinearGradient(
-                            colors: isOn
-                                ? [Color.cyan.opacity(0.24), Color.blue.opacity(0.08)]
-                                : [Color.white.opacity(0.05), Color.black.opacity(0.25)],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
+                Color.black.opacity(0.85)
                 
-                // DẢI SÁNG SHIMMER QUÉT CHÉO KHI KÍCH HOẠT
+                LinearGradient(
+                    colors: isOn
+                        ? [Color.white.opacity(0.18), Color.white.opacity(0.04)]
+                        : [Color.white.opacity(0.04), Color.clear],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                
+                // TIA SÁNG QUÉT CHÉO KHI KÍCH HOẠT
                 if isOn {
                     LinearGradient(
-                        colors: [.clear, Color.white.opacity(0.38), .clear],
+                        colors: [.clear, Color.white.opacity(0.42), .clear],
                         startPoint: .leading,
                         endPoint: .trailing
                     )
-                    .frame(width: 65)
+                    .frame(width: 60)
                     .rotationEffect(.degrees(22))
                     .offset(x: sweepOffset)
                     .allowsHitTesting(false)
                 }
             }
         )
-        .environment(\.colorScheme, .dark)
-        .clipShape(RoundedRectangle(cornerRadius: 17))
+        .clipShape(CyberChamferShape(cut: 11))
         .overlay(
-            RoundedRectangle(cornerRadius: 17)
-                .stroke(
-                    isOn
-                    ? LinearGradient(colors: [.white, .cyan], startPoint: .topLeading, endPoint: .bottomTrailing)
-                    : LinearGradient(colors: [Color.white.opacity(0.22), Color.white.opacity(0.06)], startPoint: .topLeading, endPoint: .bottomTrailing),
-                    lineWidth: isOn ? 1.4 : 0.9
+            CyberChamferShape(cut: 11)
+                .strokeBorder(
+                    isOn ? Color.white : Color.white.opacity(0.18),
+                    lineWidth: isOn ? 1.5 : 0.9
                 )
         )
-        .shadow(color: isOn ? .cyan.opacity(0.26) : .clear, radius: 8, y: 3)
+        .shadow(color: isOn ? .white.opacity(0.28) : .clear, radius: 8)
         .contentShape(Rectangle())
         .onTapGesture {
             guard !busy, (hasLink || isOn) else { return }
             toggleFeature(currentlyOn: isOn)
         }
-        .opacity(hasLink ? 1 : 0.48)
-        .animation(.spring(response: 0.24, dampingFraction: 0.74), value: isOn)
+        .opacity(hasLink ? 1 : 0.45)
+        .animation(.spring(response: 0.22, dampingFraction: 0.75), value: isOn)
         .onChange(of: isOn) { active in
             if active {
                 sweepOffset = -140
-                rippleScale = 0.85
-                rippleOpacity = 0.95
-                withAnimation(.easeOut(duration: 0.5)) {
+                withAnimation(.easeOut(duration: 0.48)) {
                     sweepOffset = 170
-                    rippleScale = 2.0
-                    rippleOpacity = 0.0
                 }
             }
         }
@@ -1093,7 +1078,7 @@ private struct CompactObsidianTile: View {
         
         guard isSessionActive else { return }
         
-        // Phát tiếng "Tích" gốc của iPhone + Taptic rung xác nhận
+        // Tiếng "Tích" gốc của iPhone + Taptic rung xác nhận
         iPhoneNativeFeedback.tickOn()
         
         Task {
@@ -1138,17 +1123,17 @@ struct ModDetailSheet: View {
                             SecureCatalogImage(urlString: imgURL, placeholder: Image(systemName: "photo"))
                                 .frame(maxWidth: .infinity)
                                 .frame(height: 240)
-                                .clipShape(RoundedRectangle(cornerRadius: 16))
-                                .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.white.opacity(0.25), lineWidth: 1))
+                                .clipShape(CyberChamferShape(cut: 12))
+                                .overlay(CyberChamferShape(cut: 12).strokeBorder(Color.white.opacity(0.35), lineWidth: 1))
                         }
                         
                         if let guide = item.usageGuide, !guide.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                             VStack(alignment: .leading, spacing: 12) {
                                 HStack {
                                     Image(systemName: "text.book.closed.fill")
-                                        .foregroundColor(.cyan)
-                                    Text("Hướng dẫn sử dụng")
-                                        .font(.headline)
+                                        .foregroundColor(.white)
+                                    Text("HƯỚNG DẪN SỬ DỤNG")
+                                        .font(.system(size: 13, weight: .black, design: .monospaced))
                                         .foregroundColor(.white)
                                     Spacer()
                                     Button {
@@ -1158,27 +1143,27 @@ struct ModDetailSheet: View {
                                         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { copied = false }
                                     } label: {
                                         HStack(spacing: 4) {
-                                            Image(systemName: copied ? "checkmark.circle.fill" : "doc.on.doc")
-                                            Text(copied ? "Đã Copy" : "Copy")
+                                            Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                                            Text(copied ? "ĐÃ COPY" : "COPY")
                                         }
-                                        .font(.caption.bold())
-                                        .foregroundColor(copied ? .green : .cyan)
+                                        .font(.system(size: 11, weight: .black, design: .monospaced))
+                                        .foregroundColor(.black)
                                         .padding(.horizontal, 10)
                                         .padding(.vertical, 6)
-                                        .background(Color.cyan.opacity(copied ? 0.08 : 0.16))
-                                        .cornerRadius(8)
+                                        .background(Color.white)
+                                        .clipShape(CyberChamferShape(cut: 6))
                                     }
                                     .buttonStyle(.plain)
                                 }
                                 
                                 Text(guide)
                                     .font(.body)
-                                    .foregroundColor(.white.opacity(0.88))
+                                    .foregroundColor(.white.opacity(0.9))
                                     .padding(14)
                                     .frame(maxWidth: .infinity, alignment: .leading)
                                     .background(Color.white.opacity(0.05))
-                                    .cornerRadius(14)
-                                    .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.12), lineWidth: 1))
+                                    .clipShape(CyberChamferShape(cut: 10))
+                                    .overlay(CyberChamferShape(cut: 10).strokeBorder(Color.white.opacity(0.18), lineWidth: 1))
                                 
                                 if isYouTubeLink {
                                     Button {
@@ -1189,14 +1174,14 @@ struct ModDetailSheet: View {
                                     } label: {
                                         HStack(spacing: 8) {
                                             Image(systemName: "play.rectangle.fill")
-                                            Text("Mở Video Hướng Dẫn")
+                                            Text("MỞ VIDEO HƯỚNG DẪN")
+                                                .font(.system(size: 13, weight: .black, design: .monospaced))
                                         }
-                                        .font(.headline)
-                                        .foregroundColor(.white)
+                                        .foregroundColor(.black)
                                         .frame(maxWidth: .infinity)
                                         .padding(.vertical, 14)
-                                        .background(LinearGradient(colors: [.red, .red.opacity(0.8)], startPoint: .leading, endPoint: .trailing))
-                                        .cornerRadius(14)
+                                        .background(Color.white)
+                                        .clipShape(CyberChamferShape(cut: 10))
                                     }
                                     .buttonStyle(.plain)
                                 }
@@ -1221,12 +1206,12 @@ struct ModDetailSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Đóng") {
+                    Button("ĐÓNG") {
                         iPhoneNativeFeedback.tap()
                         dismiss()
                     }
-                    .foregroundColor(.cyan)
-                    .font(.headline.bold())
+                    .foregroundColor(.white)
+                    .font(.system(size: 13, weight: .black, design: .monospaced))
                 }
             }
             .onChange(of: authManager.isAuthorized) { authorized in
