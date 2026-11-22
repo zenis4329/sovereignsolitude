@@ -1,124 +1,43 @@
 import SwiftUI
 import UIKit
-import AVFoundation
 import AudioToolbox
 
-// MARK: - BỘ PHÁT TIẾNG "TÍCH" CHUẨN IPHONE (APPLE PAY / FACE ID CHIME - 0ms LAG)
-final class iPhoneChimeEngine {
-    static let shared = iPhoneChimeEngine()
-    
-    private var engine = AVAudioEngine()
-    private var player = AVAudioPlayerNode()
-    private let sampleRate: Double = 44100.0
-    private var isSetup = false
-    private let audioQueue = DispatchQueue(label: "com.zenis.iphone.chime", qos: .userInteractive)
-    
-    private init() {
-        setupEngine()
+// MARK: - ÂM THANH "TÍCH" GỐC CỦA HỆ THỐNG IPHONE + TAPTIC ENGINE (0ms LAG)
+enum iPhoneNativeFeedback {
+    /// Tiếng "Tích" chuẩn iPhone (System Sound 1057 - Tink.caf) + Rung xác nhận
+    static func tickOn() {
+        AudioServicesPlaySystemSound(1057)
+        let generator = UINotificationFeedbackGenerator()
+        generator.prepare()
+        generator.notificationOccurred(.success)
     }
     
-    private func setupEngine() {
-        audioQueue.async { [weak self] in
-            guard let self = self, !self.isSetup else { return }
-            let session = AVAudioSession.sharedInstance()
-            try? session.setCategory(.ambient, mode: .default, options: [.mixWithOthers])
-            try? session.setActive(true)
-            
-            let format = AVAudioFormat(standardFormatWithSampleRate: self.sampleRate, channels: 1)!
-            self.engine.attach(self.player)
-            self.engine.connect(self.player, to: self.engine.mainMixerNode, format: format)
-            self.engine.mainMixerNode.outputVolume = 0.65
-            try? self.engine.start()
-            self.isSetup = true
-        }
+    /// Tiếng "Tock" trầm nhẹ khi tắt chức năng
+    static func tickOff() {
+        AudioServicesPlaySystemSound(1105)
+        let generator = UIImpactFeedbackGenerator(style: .light)
+        generator.prepare()
+        generator.impactOccurred()
     }
     
-    /// Tiếng "Tích-Tích" trong trẻo chuẩn Apple Pay / Face ID iPhone khi bật
-    func playiPhoneTickOn() {
-        playTwoNoteBell(
-            freq1: 987.77,   // Nốt B5
-            freq2: 1318.51,  // Nốt E6 (quãng 4 đúng tạo độ ngân iPhone)
-            gap: 0.068,
-            decay: 0.24
-        )
-    }
-    
-    /// Tiếng "Tích" trầm nhẹ khi tắt chức năng
-    func playiPhoneTickOff() {
-        playTwoNoteBell(
-            freq1: 880.00,   // A5
-            freq2: 659.25,   // E5
-            gap: 0.055,
-            decay: 0.16
-        )
-    }
-    
-    /// Tiếng "Tock" bàn phím iOS chuẩn khi chạm nút/tab
-    func playSystemTock() {
+    /// Tiếng chạm phím iOS chuẩn khi chuyển tab / mở popup
+    static func tap() {
         AudioServicesPlaySystemSound(1104)
+        let generator = UIImpactFeedbackGenerator(style: .soft)
+        generator.prepare()
+        generator.impactOccurred()
     }
     
-    /// Tiếng chuông ngân khởi động game
-    func playLaunchChime() {
-        playTwoNoteBell(
-            freq1: 1046.50,  // C6
-            freq2: 1567.98,  // G6
-            gap: 0.075,
-            decay: 0.32
-        )
-    }
-    
-    private func playTwoNoteBell(freq1: Double, freq2: Double, gap: Double, decay: Double) {
-        audioQueue.async { [weak self] in
-            guard let self = self else { return }
-            if !self.engine.isRunning {
-                try? self.engine.start()
-            }
-            
-            let totalDuration = gap + decay
-            let format = AVAudioFormat(standardFormatWithSampleRate: self.sampleRate, channels: 1)!
-            let frameCount = AVAudioFrameCount(self.sampleRate * totalDuration)
-            guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount) else { return }
-            buffer.frameLength = frameCount
-            
-            let data = buffer.floatChannelData![0]
-            let gapFrames = Int(self.sampleRate * gap)
-            
-            var p1: Double = 0
-            var p1Over: Double = 0
-            var p2: Double = 0
-            var p2Over: Double = 0
-            
-            for i in 0..<Int(frameCount) {
-                var sample: Double = 0
-                
-                // Nốt 1
-                let t1 = Double(i) / self.sampleRate
-                let env1 = min(1.0, t1 * 280.0) * exp(-t1 * 18.0)
-                p1 += (2.0 * .pi * freq1) / self.sampleRate
-                p1Over += (2.0 * .pi * (freq1 * 2.0)) / self.sampleRate
-                sample += (sin(p1) * 0.82 + sin(p1Over) * 0.18) * env1
-                
-                // Nốt 2 (sau khoảng trễ 68ms)
-                if i >= gapFrames {
-                    let t2 = Double(i - gapFrames) / self.sampleRate
-                    let env2 = min(1.0, t2 * 300.0) * exp(-t2 * 13.5)
-                    p2 += (2.0 * .pi * freq2) / self.sampleRate
-                    p2Over += (2.0 * .pi * (freq2 * 2.0)) / self.sampleRate
-                    sample += (sin(p2) * 0.85 + sin(p2Over) * 0.15) * env2
-                }
-                
-                data[i] = Float(sample) * 0.42
-            }
-            
-            self.player.stop()
-            self.player.scheduleBuffer(buffer, at: nil, options: [], completionHandler: nil)
-            self.player.play()
-        }
+    /// Tiếng xác nhận mạnh khi khởi động game
+    static func launch() {
+        AudioServicesPlaySystemSound(1057)
+        let generator = UIImpactFeedbackGenerator(style: .heavy)
+        generator.prepare()
+        generator.impactOccurred()
     }
 }
 
-// MARK: - CACHE ẢNH RAM CHỐNG LOAD LẠI
+// MARK: - CACHE ẢNH RAM SIÊU TỐC
 final class CatalogImageCache {
     static let shared = NSCache<NSString, UIImage>()
 }
@@ -187,13 +106,14 @@ struct SecureCatalogImage: View {
     }
 }
 
-// MARK: - MÀN HÌNH CHÍNH (PITCH-BLACK LUXURY HUB)
+// MARK: - MÀN HÌNH CHÍNH (OBSIDIAN GLASS COMMAND DECK)
 struct GameCatalogView: View {
     @StateObject private var store = GameCatalogStore.shared
     @StateObject private var authManager = CustomAuthManager.shared
     @Binding var isTabBarHidden: Bool
     
     @State private var isRotating = false
+    @State private var auroraPulse = false
     
     private var isSessionActive: Bool {
         authManager.isAuthorized
@@ -212,14 +132,14 @@ struct GameCatalogView: View {
             ZStack {
                 Color.black.ignoresSafeArea()
                 
-                // --- BACKGROUND MỜ TINH TẾ ---
+                // BACKGROUND ẢNH MỜ SÂU
                 GeometryReader { geo in
                     SecureCatalogImage(urlString: authManager.publicBackgroundURL, placeholder: Image(systemName: "sparkles"))
                         .frame(width: geo.size.width, height: geo.size.height)
-                        .opacity(0.45)
+                        .opacity(0.42)
                         .overlay(
                             LinearGradient(
-                                colors: [Color.black.opacity(0.35), Color.black.opacity(0.85), Color.black],
+                                colors: [Color.black.opacity(0.4), Color.black.opacity(0.86), Color.black],
                                 startPoint: .top,
                                 endPoint: .bottom
                             )
@@ -227,88 +147,161 @@ struct GameCatalogView: View {
                 }
                 .ignoresSafeArea()
                 
-                // --- HIỆU ỨNG HẠT SÁNG RƠI NHẸ 60FPS ---
-                AmbientStarfieldCanvas()
+                // QUẦNG SÁNG AURORA THỞ NHẸ (GPU OPTIMAL)
+                Circle()
+                    .fill(Color.cyan.opacity(auroraPulse ? 0.16 : 0.08))
+                    .frame(width: 300, height: 300)
+                    .blur(radius: 90)
+                    .offset(x: -100, y: -240)
+                    .allowsHitTesting(false)
+                
+                Circle()
+                    .fill(Color.indigo.opacity(auroraPulse ? 0.18 : 0.1))
+                    .frame(width: 280, height: 280)
+                    .blur(radius: 95)
+                    .offset(x: 120, y: 260)
+                    .allowsHitTesting(false)
+                
+                // NỀN HẠT ÁNH SÁNG 60FPS
+                ObsidianParticleCanvas()
                     .ignoresSafeArea()
                     .allowsHitTesting(false)
                 
                 ScrollView(showsIndicators: false) {
-                    VStack(spacing: 20) {
-                        // DYNAMIC STATUS PILL
-                        HStack {
-                            HStack(spacing: 7) {
-                                Circle()
-                                    .fill(Color.green)
-                                    .frame(width: 7, height: 7)
-                                    .shadow(color: .green, radius: 5)
-                                Text("SYSTEM ONLINE")
-                                    .font(.system(size: 10, weight: .heavy, design: .monospaced))
-                                    .tracking(1.1)
-                                    .foregroundColor(.white.opacity(0.85))
+                    VStack(spacing: 18) {
+                        // HERO BENTO CARD GỘP TRẠNG THÁI + AVATAR + THƯƠNG HIỆU
+                        VStack(spacing: 14) {
+                            HStack {
+                                HStack(spacing: 6) {
+                                    Circle()
+                                        .fill(Color.green)
+                                        .frame(width: 6.5, height: 6.5)
+                                        .shadow(color: .green, radius: 5)
+                                    Text("ONLINE")
+                                        .font(.system(size: 9.5, weight: .black, design: .monospaced))
+                                        .tracking(1.1)
+                                        .foregroundColor(.white.opacity(0.85))
+                                }
+                                .padding(.horizontal, 9)
+                                .padding(.vertical, 4)
+                                .background(Color.white.opacity(0.08))
+                                .clipShape(Capsule())
+                                
+                                Spacer()
+                                
+                                if totalEnabledMods > 0 {
+                                    Button {
+                                        iPhoneNativeFeedback.tickOff()
+                                        store.disableAllEnabledMods()
+                                    } label: {
+                                        HStack(spacing: 4) {
+                                            Image(systemName: "power")
+                                                .font(.system(size: 9, weight: .black))
+                                            Text("TẮT HẾT (\(totalEnabledMods))")
+                                                .font(.system(size: 9.5, weight: .black, design: .monospaced))
+                                        }
+                                        .foregroundColor(.black)
+                                        .padding(.horizontal, 10)
+                                        .padding(.vertical, 4.5)
+                                        .background(LinearGradient(colors: [.white, .cyan], startPoint: .leading, endPoint: .trailing))
+                                        .clipShape(Capsule())
+                                        .shadow(color: .cyan.opacity(0.5), radius: 6)
+                                    }
+                                    .buttonStyle(.plain)
+                                } else {
+                                    Text("READY")
+                                        .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                                        .tracking(1)
+                                        .foregroundColor(.cyan)
+                                        .padding(.horizontal, 9)
+                                        .padding(.vertical, 4)
+                                        .background(Color.cyan.opacity(0.12))
+                                        .clipShape(Capsule())
+                                }
                             }
                             
-                            Spacer()
-                            
-                            if totalEnabledMods > 0 {
-                                Text("\(totalEnabledMods) ACTIVE")
-                                    .font(.system(size: 10, weight: .black, design: .monospaced))
-                                    .foregroundColor(.black)
-                                    .padding(.horizontal, 9)
-                                    .padding(.vertical, 3.5)
-                                    .background(Color.cyan)
-                                    .clipShape(Capsule())
-                                    .shadow(color: .cyan.opacity(0.6), radius: 6)
-                            } else {
-                                Text("READY")
-                                    .font(.system(size: 10, weight: .bold, design: .monospaced))
-                                    .foregroundColor(.cyan)
+                            HStack(spacing: 14) {
+                                ZStack {
+                                    Circle()
+                                        .stroke(
+                                            AngularGradient(colors: [.white, .cyan, .clear, .white], center: .center),
+                                            lineWidth: 2.2
+                                        )
+                                        .frame(width: 74, height: 74)
+                                        .rotationEffect(.degrees(isRotating ? 360 : 0))
+                                        .animation(.linear(duration: 4.5).repeatForever(autoreverses: false), value: isRotating)
+                                        .drawingGroup()
+                                    
+                                    SecureCatalogImage(urlString: authManager.publicAvatarURL, placeholder: Image(systemName: "person.crop.circle.fill"))
+                                        .frame(width: 66, height: 66)
+                                        .clipShape(Circle())
+                                        .overlay(Circle().stroke(Color.white.opacity(0.3), lineWidth: 1))
+                                }
+                                
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(authManager.publicAppName.isEmpty ? "𝐒𝐨𝐯𝐞𝐫𝐞𝐢𝐠𝐧 𝐒𝐨𝐥𝐢𝐭𝐮𝐝𝐞" : authManager.publicAppName)
+                                        .font(.system(size: 21, weight: .black, design: .rounded))
+                                        .foregroundColor(.white)
+                                        .lineLimit(1)
+                                        .shadow(color: .cyan.opacity(0.35), radius: 8)
+                                    
+                                    Text("Bảng điều khiển tối ưu • Chạm game để mở")
+                                        .font(.system(size: 11.5, weight: .medium))
+                                        .foregroundColor(.white.opacity(0.55))
+                                        .lineLimit(1)
+                                }
+                                
+                                Spacer(minLength: 0)
                             }
                         }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 10)
-                        .background(.ultraThinMaterial)
-                        .environment(\.colorScheme, .dark)
-                        .clipShape(Capsule())
-                        .overlay(Capsule().stroke(Color.white.opacity(0.18), lineWidth: 1))
-                        .padding(.horizontal, 18)
-                        .padding(.top, 14)
-                        
-                        // HERO BRAND CARD
-                        VStack(spacing: 12) {
+                        .padding(15)
+                        .background(
                             ZStack {
-                                Circle()
-                                    .fill(Color.cyan.opacity(0.18))
-                                    .frame(width: 104, height: 104)
-                                    .blur(radius: 18)
-                                
-                                Circle()
-                                    .stroke(
-                                        AngularGradient(colors: [.white, .cyan, .blue, .white], center: .center),
-                                        lineWidth: 2.5
+                                RoundedRectangle(cornerRadius: 24)
+                                    .fill(.ultraThinMaterial)
+                                RoundedRectangle(cornerRadius: 24)
+                                    .fill(
+                                        LinearGradient(
+                                            colors: [Color.white.opacity(0.08), Color.white.opacity(0.01)],
+                                            startPoint: .topLeading,
+                                            endPoint: .bottomTrailing
+                                        )
                                     )
-                                    .frame(width: 88, height: 88)
-                                    .rotationEffect(.degrees(isRotating ? 360 : 0))
-                                    .animation(.linear(duration: 5).repeatForever(autoreverses: false), value: isRotating)
-                                    .drawingGroup()
-                                
-                                SecureCatalogImage(urlString: authManager.publicAvatarURL, placeholder: Image(systemName: "person.crop.circle.fill"))
-                                    .frame(width: 78, height: 78)
-                                    .clipShape(Circle())
-                                    .overlay(Circle().stroke(Color.white.opacity(0.35), lineWidth: 1))
                             }
-                            
-                            VStack(spacing: 4) {
-                                Text(authManager.publicAppName.isEmpty ? "𝐒𝐨𝐯𝐞𝐫𝐞𝐢𝐠𝐧 𝐒𝐨𝐥𝐢𝐭𝐮𝐝𝐞" : authManager.publicAppName)
-                                    .font(.system(size: 24, weight: .black, design: .rounded))
-                                    .foregroundColor(.white)
-                                    .shadow(color: .white.opacity(0.25), radius: 8)
-                                
-                                Text("Chọn trò chơi để mở bảng điều khiển")
-                                    .font(.system(size: 12, weight: .medium))
-                                    .foregroundColor(.white.opacity(0.5))
-                            }
+                        )
+                        .environment(\.colorScheme, .dark)
+                        .clipShape(RoundedRectangle(cornerRadius: 24))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 24)
+                                .stroke(
+                                    LinearGradient(
+                                        colors: [Color.white.opacity(0.35), Color.cyan.opacity(0.3), Color.white.opacity(0.06)],
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    ),
+                                    lineWidth: 1.1
+                                )
+                        )
+                        .padding(.horizontal, 16)
+                        .padding(.top, 12)
+                        
+                        // TIÊU ĐỀ DANH SÁCH GAME
+                        HStack {
+                            Text("ỨNG DỤNG KHẢ DỤNG")
+                                .font(.system(size: 10.5, weight: .heavy, design: .monospaced))
+                                .tracking(1.4)
+                                .foregroundColor(.white.opacity(0.55))
+                            Spacer()
+                            Text("\(store.catalog.orderedGames.count)")
+                                .font(.system(size: 10.5, weight: .black, design: .monospaced))
+                                .foregroundColor(.cyan)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 2)
+                                .background(Color.cyan.opacity(0.14))
+                                .clipShape(Capsule())
                         }
-                        .padding(.vertical, 6)
+                        .padding(.horizontal, 20)
+                        .padding(.bottom, -6)
                         
                         // DANH SÁCH GAME
                         VStack(spacing: 12) {
@@ -316,7 +309,7 @@ struct GameCatalogView: View {
                                 VStack(spacing: 10) {
                                     Image(systemName: "gamecontroller")
                                         .font(.system(size: 28))
-                                        .foregroundColor(.white.opacity(0.4))
+                                        .foregroundColor(.white.opacity(0.35))
                                     Text("Chưa có trò chơi nào được cấu hình")
                                         .font(.system(size: 13.5, weight: .medium))
                                         .foregroundColor(.white.opacity(0.55))
@@ -326,21 +319,20 @@ struct GameCatalogView: View {
                                 .background(Color.white.opacity(0.04))
                                 .clipShape(RoundedRectangle(cornerRadius: 22))
                                 .overlay(RoundedRectangle(cornerRadius: 22).stroke(Color.white.opacity(0.12), lineWidth: 1))
-                                .padding(.horizontal, 18)
+                                .padding(.horizontal, 16)
                             } else {
                                 ForEach(store.catalog.orderedGames) { game in
                                     NavigationLink(destination: GameDetailView(gameID: game.id, isTabBarHidden: $isTabBarHidden)) {
-                                        GameHubRow(game: game)
+                                        ObsidianGameCard(game: game)
                                     }
-                                    .buttonStyle(SpringPressStyle())
+                                    .buttonStyle(TactileBounceStyle())
                                     .disabled(!isSessionActive)
                                     .simultaneousGesture(TapGesture().onEnded {
                                         guard isSessionActive else { return }
-                                        iPhoneChimeEngine.shared.playSystemTock()
-                                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                                        iPhoneNativeFeedback.tap()
                                         withAnimation(.easeInOut(duration: 0.2)) { isTabBarHidden = true }
                                     })
-                                    .padding(.horizontal, 18)
+                                    .padding(.horizontal, 16)
                                 }
                             }
                         }
@@ -353,6 +345,9 @@ struct GameCatalogView: View {
             .toolbar(.hidden, for: .navigationBar)
             .onAppear {
                 isRotating = true
+                withAnimation(.easeInOut(duration: 3.0).repeatForever(autoreverses: true)) {
+                    auroraPulse = true
+                }
                 store.rememberCatalogItems()
                 if !authManager.isAuthorized || store.catalog.resolvedMaintenanceEnabled {
                     store.disableAllEnabledMods()
@@ -378,7 +373,7 @@ struct GameCatalogView: View {
 }
 
 // MARK: - THẺ GAME TRÊN MÀN HÌNH CHÍNH
-private struct GameHubRow: View {
+private struct ObsidianGameCard: View {
     let game: GameCatalogGame
     @StateObject private var store = GameCatalogStore.shared
     
@@ -395,13 +390,19 @@ private struct GameHubRow: View {
     
     var body: some View {
         HStack(spacing: 14) {
-            SecureCatalogImage(urlString: game.iconURL ?? "", placeholder: Image(systemName: "gamecontroller.fill"))
-                .frame(width: 56, height: 56)
-                .clipShape(RoundedRectangle(cornerRadius: 16))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 16)
-                        .stroke(Color.white.opacity(0.28), lineWidth: 1.2)
-                )
+            ZStack {
+                SecureCatalogImage(urlString: game.iconURL ?? "", placeholder: Image(systemName: "gamecontroller.fill"))
+                    .frame(width: 58, height: 58)
+                    .clipShape(RoundedRectangle(cornerRadius: 17))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 17)
+                            .stroke(
+                                LinearGradient(colors: [.white.opacity(0.5), .cyan.opacity(0.6)], startPoint: .topLeading, endPoint: .bottomTrailing),
+                                lineWidth: 1.3
+                            )
+                    )
+                    .shadow(color: .cyan.opacity(0.25), radius: 8)
+            }
             
             VStack(alignment: .leading, spacing: 5) {
                 Text(game.name)
@@ -410,12 +411,12 @@ private struct GameHubRow: View {
                     .lineLimit(1)
                 
                 HStack(spacing: 8) {
-                    Text("\(activeVisibleItemsCount) chức năng")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(.white.opacity(0.55))
+                    Label("\(activeVisibleItemsCount) tính năng", systemImage: "square.grid.2x2")
+                        .font(.system(size: 11.5, weight: .medium))
+                        .foregroundColor(.white.opacity(0.58))
                     
                     if enabledModCount > 0 {
-                        Text("• \(enabledModCount) đang bật")
+                        Text("• \(enabledModCount) bật")
                             .font(.system(size: 11.5, weight: .bold))
                             .foregroundColor(.cyan)
                     }
@@ -424,79 +425,98 @@ private struct GameHubRow: View {
             
             Spacer()
             
-            Image(systemName: "chevron.right")
-                .font(.system(size: 14, weight: .bold))
-                .foregroundColor(.white)
-                .frame(width: 36, height: 36)
-                .background(Color.white.opacity(0.1))
-                .clipShape(Circle())
-                .overlay(Circle().stroke(Color.white.opacity(0.2), lineWidth: 1))
+            HStack(spacing: 5) {
+                Text("MỞ")
+                    .font(.system(size: 11, weight: .black, design: .monospaced))
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 11, weight: .black))
+            }
+            .foregroundColor(.black)
+            .padding(.horizontal, 13)
+            .padding(.vertical, 8.5)
+            .background(LinearGradient(colors: [.white, .cyan], startPoint: .topLeading, endPoint: .bottomTrailing))
+            .clipShape(Capsule())
+            .shadow(color: .cyan.opacity(0.45), radius: 8)
         }
         .padding(14)
-        .background(.ultraThinMaterial)
+        .background(
+            ZStack {
+                RoundedRectangle(cornerRadius: 22)
+                    .fill(.ultraThinMaterial)
+                RoundedRectangle(cornerRadius: 22)
+                    .fill(
+                        LinearGradient(
+                            colors: [Color.white.opacity(0.07), Color.white.opacity(0.015)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+            }
+        )
         .environment(\.colorScheme, .dark)
         .clipShape(RoundedRectangle(cornerRadius: 22))
         .overlay(
             RoundedRectangle(cornerRadius: 22)
                 .stroke(
                     LinearGradient(
-                        colors: [Color.white.opacity(0.35), Color.cyan.opacity(0.35), Color.white.opacity(0.08)],
+                        colors: [Color.white.opacity(0.32), Color.cyan.opacity(0.35), Color.white.opacity(0.06)],
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
                     ),
-                    lineWidth: 1.2
+                    lineWidth: 1.1
                 )
         )
-        .shadow(color: .cyan.opacity(0.12), radius: 14, y: 6)
     }
 }
 
-// MARK: - HIỆU ỨNG NHÚN KHI CHẠM
-struct SpringPressStyle: ButtonStyle {
+// MARK: - HIỆU ỨNG NHÚN TACTILE KHI CHẠM
+struct TactileBounceStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .scaleEffect(configuration.isPressed ? 0.965 : 1.0)
-            .animation(.spring(response: 0.24, dampingFraction: 0.68), value: configuration.isPressed)
+            .animation(.spring(response: 0.22, dampingFraction: 0.68), value: configuration.isPressed)
     }
 }
 
-// MARK: - NỀN HẠT SÁNG RƠI NHẸ (60FPS GPU)
-struct AmbientStarParticle: Identifiable {
+// MARK: - NỀN HẠT ÁNH SÁNG 60FPS NHẸ MÁY
+struct ObsidianParticle: Identifiable {
     let id = UUID()
     var x: CGFloat
     var y: CGFloat
     var size: CGFloat
     var speed: CGFloat
     var opacity: Double
+    var isCyan: Bool
 }
 
-struct AmbientStarfieldCanvas: View {
-    @State private var stars: [AmbientStarParticle] = []
+struct ObsidianParticleCanvas: View {
+    @State private var particles: [ObsidianParticle] = []
     
     var body: some View {
         GeometryReader { geo in
             TimelineView(.animation) { timeline in
                 Canvas { context, size in
                     let time = timeline.date.timeIntervalSinceReferenceDate
-                    for star in stars {
-                        let yPos = (star.y + CGFloat(time) * star.speed).truncatingRemainder(dividingBy: size.height + 40)
-                        let xPos = star.x + sin(CGFloat(time) * 1.1 + star.y * 0.04) * 10
-                        context.opacity = star.opacity
-                        let rect = CGRect(x: xPos, y: yPos, width: star.size, height: star.size)
-                        context.fill(Path(ellipseIn: rect), with: .color(.white))
+                    for p in particles {
+                        let yPos = (p.y + CGFloat(time) * p.speed).truncatingRemainder(dividingBy: size.height + 40)
+                        let xPos = p.x + sin(CGFloat(time) * 1.15 + p.y * 0.04) * 10
+                        context.opacity = p.opacity
+                        let rect = CGRect(x: xPos, y: yPos, width: p.size, height: p.size)
+                        context.fill(Path(ellipseIn: rect), with: .color(p.isCyan ? .cyan : .white))
                     }
                 }
             }
             .onAppear {
-                guard stars.isEmpty else { return }
-                for _ in 0..<26 {
-                    stars.append(
-                        AmbientStarParticle(
+                guard particles.isEmpty else { return }
+                for i in 0..<24 {
+                    particles.append(
+                        ObsidianParticle(
                             x: CGFloat.random(in: 0...geo.size.width),
                             y: CGFloat.random(in: 0...geo.size.height),
                             size: CGFloat.random(in: 1.5...3.4),
                             speed: CGFloat.random(in: 14...28),
-                            opacity: Double.random(in: 0.15...0.55)
+                            opacity: Double.random(in: 0.16...0.52),
+                            isCyan: i % 3 == 0
                         )
                     )
                 }
@@ -505,7 +525,7 @@ struct AmbientStarfieldCanvas: View {
     }
 }
 
-// MARK: - MÀN HÌNH CHI TIẾT GAME (BENTO GRID 2 CỘT + SEGMENTED TABS GỌN ĐẸP)
+// MARK: - MÀN HÌNH CHI TIẾT GAME (LƯỚI BENTO SIÊU GỌN - HIỆN 8-10 MỤC CÙNG LÚC)
 private struct GameDetailView: View {
     let gameID: String
     @Binding var isTabBarHidden: Bool
@@ -515,7 +535,7 @@ private struct GameDetailView: View {
     @State private var searchText = ""
     @State private var showSearchBar = false
     @State private var onlyActiveFilter = false
-    @Namespace private var tabAnimation
+    @Namespace private var tabNamespace
     @Environment(\.dismiss) private var dismiss
 
     private var catalog: GameCatalog { store.catalog }
@@ -555,8 +575,8 @@ private struct GameDetailView: View {
     }
     
     private let columns = [
-        GridItem(.flexible(), spacing: 11),
-        GridItem(.flexible(), spacing: 11)
+        GridItem(.flexible(), spacing: 9),
+        GridItem(.flexible(), spacing: 9)
     ]
 
     var body: some View {
@@ -566,10 +586,10 @@ private struct GameDetailView: View {
             GeometryReader { geo in
                 SecureCatalogImage(urlString: authManager.publicBackgroundURL, placeholder: Image(systemName: "photo"))
                     .frame(width: geo.size.width, height: geo.size.height)
-                    .opacity(0.38)
+                    .opacity(0.36)
                     .overlay(
                         LinearGradient(
-                            colors: [Color.black.opacity(0.45), Color.black.opacity(0.88), Color.black],
+                            colors: [Color.black.opacity(0.5), Color.black.opacity(0.9), Color.black],
                             startPoint: .top,
                             endPoint: .bottom
                         )
@@ -577,69 +597,15 @@ private struct GameDetailView: View {
             }
             .ignoresSafeArea()
             
-            VStack(spacing: 12) {
-                // 1. TOP BAR TINH GỌN
+            VStack(spacing: 10) {
+                // 1. HEADER SIÊU GỌN
                 HStack(spacing: 10) {
                     Button {
-                        iPhoneChimeEngine.shared.playSystemTock()
-                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        iPhoneNativeFeedback.tap()
                         withAnimation(.easeInOut(duration: 0.2)) { isTabBarHidden = false }
                         dismiss()
                     } label: {
                         Image(systemName: "chevron.left")
-                            .font(.system(size: 15, weight: .bold))
-                            .foregroundColor(.white)
-                            .frame(width: 38, height: 38)
-                            .background(Color.white.opacity(0.08))
-                            .clipShape(Circle())
-                            .overlay(Circle().stroke(Color.white.opacity(0.18), lineWidth: 1))
-                    }
-                    
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(game?.name ?? "Danh sách Mod")
-                            .font(.system(size: 18, weight: .black, design: .rounded))
-                            .foregroundColor(.white)
-                            .lineLimit(1)
-                        
-                        HStack(spacing: 5) {
-                            Circle()
-                                .fill(activeCountInGame > 0 ? Color.cyan : Color.white.opacity(0.35))
-                                .frame(width: 6, height: 6)
-                            Text(activeCountInGame > 0 ? "Đang bật \(activeCountInGame) tính năng" : "Chạm thẻ để kích hoạt")
-                                .font(.system(size: 11, weight: .semibold))
-                                .foregroundColor(activeCountInGame > 0 ? .cyan : .white.opacity(0.5))
-                        }
-                    }
-                    
-                    Spacer()
-                    
-                    // Nút lọc "Đang bật"
-                    Button {
-                        iPhoneChimeEngine.shared.playSystemTock()
-                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                        withAnimation(.spring(response: 0.28, dampingFraction: 0.78)) {
-                            onlyActiveFilter.toggle()
-                        }
-                    } label: {
-                        Text("\(activeCountInGame)")
-                            .font(.system(size: 12, weight: .black, design: .monospaced))
-                            .foregroundColor(onlyActiveFilter ? .black : .cyan)
-                            .frame(width: 36, height: 36)
-                            .background(onlyActiveFilter ? Color.cyan : Color.cyan.opacity(0.12))
-                            .clipShape(Circle())
-                            .overlay(Circle().stroke(Color.cyan.opacity(0.45), lineWidth: 1))
-                    }
-                    .buttonStyle(.plain)
-                    
-                    // Nút mở/đóng tìm kiếm nhanh
-                    Button {
-                        iPhoneChimeEngine.shared.playSystemTock()
-                        withAnimation(.spring(response: 0.28, dampingFraction: 0.78)) {
-                            showSearchBar.toggle()
-                            if !showSearchBar { searchText = "" }
-                        }
-                    } label: {
-                        Image(systemName: showSearchBar ? "xmark" : "magnifyingglass")
                             .font(.system(size: 14, weight: .bold))
                             .foregroundColor(.white)
                             .frame(width: 36, height: 36)
@@ -647,18 +613,88 @@ private struct GameDetailView: View {
                             .clipShape(Circle())
                             .overlay(Circle().stroke(Color.white.opacity(0.18), lineWidth: 1))
                     }
+                    
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(game?.name ?? "Danh sách Mod")
+                            .font(.system(size: 17.5, weight: .black, design: .rounded))
+                            .foregroundColor(.white)
+                            .lineLimit(1)
+                        
+                        HStack(spacing: 5) {
+                            Circle()
+                                .fill(activeCountInGame > 0 ? Color.cyan : Color.white.opacity(0.35))
+                                .frame(width: 5.5, height: 5.5)
+                            Text(activeCountInGame > 0 ? "Đang bật \(activeCountInGame) tính năng" : "Chạm ô để kích hoạt")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundColor(activeCountInGame > 0 ? .cyan : .white.opacity(0.5))
+                        }
+                    }
+                    
+                    Spacer()
+                    
+                    // Nút tắt nhanh toàn bộ khi đang bật >= 1 mod
+                    if activeCountInGame > 0 {
+                        Button {
+                            iPhoneNativeFeedback.tickOff()
+                            store.disableAllEnabledMods()
+                        } label: {
+                            Text("Tắt hết")
+                                .font(.system(size: 11, weight: .bold))
+                                .foregroundColor(.white.opacity(0.9))
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 7)
+                                .background(Color.red.opacity(0.28))
+                                .clipShape(Capsule())
+                                .overlay(Capsule().stroke(Color.red.opacity(0.55), lineWidth: 1))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    
+                    // Nút lọc "Đang bật"
+                    Button {
+                        iPhoneNativeFeedback.tap()
+                        withAnimation(.spring(response: 0.26, dampingFraction: 0.78)) {
+                            onlyActiveFilter.toggle()
+                        }
+                    } label: {
+                        Text("\(activeCountInGame)")
+                            .font(.system(size: 11.5, weight: .black, design: .monospaced))
+                            .foregroundColor(onlyActiveFilter ? .black : .cyan)
+                            .frame(width: 34, height: 34)
+                            .background(onlyActiveFilter ? Color.cyan : Color.cyan.opacity(0.12))
+                            .clipShape(Circle())
+                            .overlay(Circle().stroke(Color.cyan.opacity(0.45), lineWidth: 1))
+                    }
+                    .buttonStyle(.plain)
+                    
+                    // Nút tìm kiếm nhanh
+                    Button {
+                        iPhoneNativeFeedback.tap()
+                        withAnimation(.spring(response: 0.26, dampingFraction: 0.78)) {
+                            showSearchBar.toggle()
+                            if !showSearchBar { searchText = "" }
+                        }
+                    } label: {
+                        Image(systemName: showSearchBar ? "xmark" : "magnifyingglass")
+                            .font(.system(size: 13.5, weight: .bold))
+                            .foregroundColor(.white)
+                            .frame(width: 34, height: 34)
+                            .background(Color.white.opacity(0.08))
+                            .clipShape(Circle())
+                            .overlay(Circle().stroke(Color.white.opacity(0.18), lineWidth: 1))
+                    }
                     .buttonStyle(.plain)
                 }
-                .padding(.horizontal, 16)
-                .padding(.top, 10)
+                .padding(.horizontal, 15)
+                .padding(.top, 8)
                 
-                // THANH TÌM KIẾM ẨN/HIỆN THÔNG MINH
+                // THANH TÌM KIẾM THU GỌN
                 if showSearchBar {
                     HStack(spacing: 8) {
                         Image(systemName: "magnifyingglass")
-                            .font(.system(size: 12.5))
+                            .font(.system(size: 12))
                             .foregroundColor(.cyan)
-                        TextField("Nhập tên tính năng cần tìm...", text: $searchText)
+                        TextField("Tìm tên tính năng...", text: $searchText)
                             .font(.system(size: 13))
                             .foregroundColor(.white)
                             .tint(.cyan)
@@ -670,66 +706,66 @@ private struct GameDetailView: View {
                         }
                     }
                     .padding(.horizontal, 12)
-                    .padding(.vertical, 9)
+                    .padding(.vertical, 8)
                     .background(Color.white.opacity(0.07))
                     .clipShape(RoundedRectangle(cornerRadius: 12))
                     .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.15), lineWidth: 1))
-                    .padding(.horizontal, 16)
+                    .padding(.horizontal, 15)
                     .transition(.move(edge: .top).combined(with: .opacity))
                 }
                 
-                // 2. SEGMENTED TAB BAR GỌN ĐẸP (KHÔNG BAO GIỜ TRÀN VIỀN)
+                // 2. THANH TAB VIÊN THUỐC CÂN ĐỐI (KHÔNG TRÀN MÀN HÌNH)
                 Group {
                     if availableTabs.count <= 3 {
                         HStack(spacing: 4) {
                             ForEach(availableTabs) { tab in
-                                tabButtonView(tab: tab, stretch: true)
+                                tabPillView(tab: tab, stretch: true)
                             }
                         }
-                        .padding(4)
+                        .padding(3.5)
                         .background(Color.white.opacity(0.06))
                         .clipShape(Capsule())
                         .overlay(Capsule().stroke(Color.white.opacity(0.14), lineWidth: 1))
-                        .padding(.horizontal, 16)
+                        .padding(.horizontal, 15)
                     } else {
                         ScrollView(.horizontal, showsIndicators: false) {
                             HStack(spacing: 6) {
                                 ForEach(availableTabs) { tab in
-                                    tabButtonView(tab: tab, stretch: false)
+                                    tabPillView(tab: tab, stretch: false)
                                 }
                             }
-                            .padding(.horizontal, 16)
+                            .padding(.horizontal, 15)
                         }
                     }
                 }
                 
-                // 3. LƯỚI BENTO 2 CỘT CHỨC NĂNG
+                // 3. LƯỚI BENTO 2 CỘT SIÊU GỌN (8–10 Ô TRÊN 1 MÀN HÌNH)
                 ScrollView(showsIndicators: false) {
                     if items.isEmpty {
                         VStack(spacing: 10) {
                             Image(systemName: "tray")
-                                .font(.system(size: 28))
+                                .font(.system(size: 26))
                                 .foregroundColor(.white.opacity(0.3))
                             Text(onlyActiveFilter ? "Chưa có tính năng nào đang bật" : "Chưa có chức năng trong mục này")
                                 .font(.system(size: 13, weight: .medium))
                                 .foregroundColor(.white.opacity(0.5))
                         }
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 48)
+                        .padding(.vertical, 44)
                         .background(Color.white.opacity(0.04))
-                        .clipShape(RoundedRectangle(cornerRadius: 20))
-                        .overlay(RoundedRectangle(cornerRadius: 20).stroke(Color.white.opacity(0.1), lineWidth: 1))
-                        .padding(.horizontal, 16)
-                        .padding(.top, 10)
+                        .clipShape(RoundedRectangle(cornerRadius: 18))
+                        .overlay(RoundedRectangle(cornerRadius: 18).stroke(Color.white.opacity(0.1), lineWidth: 1))
+                        .padding(.horizontal, 15)
+                        .padding(.top, 8)
                     } else {
-                        LazyVGrid(columns: columns, spacing: 11) {
+                        LazyVGrid(columns: columns, spacing: 9) {
                             ForEach(items) { item in
-                                BentoModCard(item: item)
+                                CompactObsidianTile(item: item)
                             }
                         }
-                        .padding(.horizontal, 16)
+                        .padding(.horizontal, 15)
                         .padding(.top, 2)
-                        .padding(.bottom, 24)
+                        .padding(.bottom, 20)
                     }
                 }
             }
@@ -737,45 +773,44 @@ private struct GameDetailView: View {
             .safeAreaInset(edge: .bottom) {
                 HStack(spacing: 10) {
                     SecureCatalogImage(urlString: game?.iconURL ?? "", placeholder: Image(systemName: "gamecontroller.fill"))
-                        .frame(width: 44, height: 44)
+                        .frame(width: 42, height: 42)
                         .clipShape(Circle())
                         .overlay(Circle().stroke(Color.white.opacity(0.3), lineWidth: 1.2))
                     
                     Button {
                         guard isSessionActive else { return }
-                        iPhoneChimeEngine.shared.playLaunchChime()
-                        UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
+                        iPhoneNativeFeedback.launch()
                         let rawLaunch = (game?.launchURL ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
                         if let url = URL(string: rawLaunch), !rawLaunch.isEmpty {
                             UIApplication.shared.open(url)
                         }
                     } label: {
-                        HStack(spacing: 8) {
+                        HStack(spacing: 7) {
                             Image(systemName: "play.fill")
-                                .font(.system(size: 14, weight: .black))
+                                .font(.system(size: 13.5, weight: .black))
                             Text("KHỞI ĐỘNG GAME")
-                                .font(.system(size: 14.5, weight: .black, design: .monospaced))
+                                .font(.system(size: 14, weight: .black, design: .monospaced))
                                 .tracking(0.8)
                         }
                         .foregroundColor(.black)
                         .frame(maxWidth: .infinity)
-                        .frame(height: 46)
+                        .frame(height: 44)
                         .background(
                             LinearGradient(colors: [.white, .cyan], startPoint: .leading, endPoint: .trailing)
                         )
                         .clipShape(Capsule())
-                        .shadow(color: .cyan.opacity(0.45), radius: 12, y: 4)
+                        .shadow(color: .cyan.opacity(0.45), radius: 10, y: 3)
                     }
-                    .buttonStyle(SpringPressStyle())
+                    .buttonStyle(TactileBounceStyle())
                 }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 7)
                 .background(.ultraThinMaterial)
                 .environment(\.colorScheme, .dark)
                 .clipShape(Capsule())
                 .overlay(Capsule().stroke(Color.white.opacity(0.18), lineWidth: 1))
-                .padding(.horizontal, 16)
-                .padding(.bottom, 6)
+                .padding(.horizontal, 15)
+                .padding(.bottom, 4)
             }
         }
         .disabled(!isSessionActive)
@@ -814,33 +849,32 @@ private struct GameDetailView: View {
     }
     
     @ViewBuilder
-    private func tabButtonView(tab: GameCatalogTab, stretch: Bool) -> some View {
+    private func tabPillView(tab: GameCatalogTab, stretch: Bool) -> some View {
         let isSelected = selectedTabID == tab.id
         Button {
-            iPhoneChimeEngine.shared.playSystemTock()
-            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-            withAnimation(.spring(response: 0.3, dampingFraction: 0.78)) {
+            iPhoneNativeFeedback.tap()
+            withAnimation(.spring(response: 0.28, dampingFraction: 0.78)) {
                 selectedTabID = tab.id
             }
         } label: {
-            HStack(spacing: 5) {
+            HStack(spacing: 4) {
                 Image(systemName: tab.icon)
-                    .font(.system(size: 11.5, weight: .bold))
+                    .font(.system(size: 11, weight: .bold))
                 Text(tab.title)
-                    .font(.system(size: 12, weight: .bold, design: .rounded))
+                    .font(.system(size: 11.5, weight: .bold, design: .rounded))
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
             }
             .foregroundColor(isSelected ? .black : .white.opacity(0.75))
             .frame(maxWidth: stretch ? .infinity : nil)
-            .padding(.horizontal, stretch ? 8 : 14)
-            .padding(.vertical, 9)
+            .padding(.horizontal, stretch ? 6 : 13)
+            .padding(.vertical, 8)
             .background(
                 ZStack {
                     if isSelected {
                         Capsule()
                             .fill(LinearGradient(colors: [.white, .cyan], startPoint: .topLeading, endPoint: .bottomTrailing))
-                            .matchedGeometryEffect(id: "ACTIVE_TAB_BG", in: tabAnimation)
+                            .matchedGeometryEffect(id: "TAB_PILL_HIGHLIGHT", in: tabNamespace)
                             .shadow(color: .cyan.opacity(0.45), radius: 6)
                     } else if !stretch {
                         Capsule()
@@ -853,16 +887,16 @@ private struct GameDetailView: View {
     }
 }
 
-// MARK: - THẺ BENTO 2 CỘT (HIỆU ỨNG SÓNG + LASER SWEEP + TIẾNG TÍCH IPHONE)
-private struct BentoModCard: View {
+// MARK: - Ô CHỨC NĂNG BENTO SIÊU GỌN (SÓNG XUNG KÍCH + QUÉT SÁNG + TIẾNG TÍCH IPHONE)
+private struct CompactObsidianTile: View {
     let item: GameCatalogItem
     @StateObject private var store = GameCatalogStore.shared
     @StateObject private var authManager = CustomAuthManager.shared
     @State private var showDetailSheet = false
     @State private var showErrorAlert = false
     @State private var errorMessage = ""
-    @State private var sweepOffset: CGFloat = -160
-    @State private var rippleScale: CGFloat = 0.6
+    @State private var sweepOffset: CGFloat = -150
+    @State private var rippleScale: CGFloat = 0.7
     @State private var rippleOpacity: Double = 0.0
     
     private var isSessionActive: Bool {
@@ -903,37 +937,36 @@ private struct BentoModCard: View {
         let isOn = store.isMultiItemOn(item: item)
         let busy = store.isMultiItemBusy(item: item)
         
-        VStack(alignment: .leading, spacing: 10) {
-            // HÀNG TRÊN: TRẠNG THÁI + NHÃN + HDSD
+        VStack(alignment: .leading, spacing: 7) {
+            // HÀNG TRÊN: NÚT TRẠNG THÁI + SÓNG XUNG KÍCH + BADGE + HDSD
             HStack(spacing: 6) {
                 ZStack {
-                    // Vòng sóng lan tỏa khi kích hoạt
                     Circle()
                         .stroke(Color.cyan, lineWidth: 1.5)
-                        .frame(width: 28, height: 28)
+                        .frame(width: 24, height: 24)
                         .scaleEffect(rippleScale)
                         .opacity(rippleOpacity)
                     
                     Circle()
-                        .fill(isOn ? Color.cyan : Color.white.opacity(0.08))
-                        .frame(width: 28, height: 28)
+                        .fill(isOn ? Color.cyan : Color.white.opacity(0.09))
+                        .frame(width: 24, height: 24)
                     
                     if busy {
                         ProgressView()
                             .tint(isOn ? .black : .cyan)
-                            .scaleEffect(0.7)
+                            .scaleEffect(0.65)
                     } else {
                         Image(systemName: isOn ? "checkmark" : "power")
-                            .font(.system(size: 12, weight: .black))
-                            .foregroundColor(isOn ? .black : .white.opacity(0.65))
+                            .font(.system(size: 10.5, weight: .black))
+                            .foregroundColor(isOn ? .black : .white.opacity(0.7))
                     }
                 }
                 
                 Text(badgeLabel)
-                    .font(.system(size: 8.5, weight: .black, design: .monospaced))
+                    .font(.system(size: 8, weight: .black, design: .monospaced))
                     .foregroundColor(isHighlightedBadge ? .black : .white.opacity(0.8))
-                    .padding(.horizontal, 6.5)
-                    .padding(.vertical, 2.5)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
                     .background(
                         isHighlightedBadge
                         ? AnyView(LinearGradient(colors: [.white, .cyan], startPoint: .leading, endPoint: .trailing))
@@ -945,60 +978,59 @@ private struct BentoModCard: View {
                 
                 if hasGuide {
                     Button {
-                        iPhoneChimeEngine.shared.playSystemTock()
-                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        iPhoneNativeFeedback.tap()
                         showDetailSheet = true
                     } label: {
                         Image(systemName: "info.circle")
-                            .font(.system(size: 15, weight: .semibold))
+                            .font(.system(size: 14, weight: .semibold))
                             .foregroundColor(.white.opacity(0.75))
                     }
                     .buttonStyle(.plain)
                 }
             }
             
-            Spacer(minLength: 2)
+            Spacer(minLength: 0)
             
-            // HÀNG DƯỚI: TÊN CHỨC NĂNG + TRẠNG THÁI GỌN
-            VStack(alignment: .leading, spacing: 3) {
+            // HÀNG DƯỚI: TÊN CHỨC NĂNG + TRẠNG THÁI
+            VStack(alignment: .leading, spacing: 2) {
                 Text(item.name)
-                    .font(.system(size: 14, weight: .bold, design: .rounded))
+                    .font(.system(size: 13, weight: .bold, design: .rounded))
                     .foregroundColor(.white)
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
                     .fixedSize(horizontal: false, vertical: true)
                 
-                Text(busy ? "Đang nạp..." : (isOn ? "Đã kích hoạt" : subtitleDisplay))
-                    .font(.system(size: 10.5, weight: .semibold))
+                Text(busy ? "Đang nạp..." : (isOn ? "Đang hoạt động" : subtitleDisplay))
+                    .font(.system(size: 10, weight: .semibold))
                     .foregroundColor(busy ? .yellow : (isOn ? .cyan : .white.opacity(0.45)))
                     .lineLimit(1)
             }
         }
-        .padding(12)
-        .frame(maxWidth: .infinity, minHeight: 104, alignment: .leading)
+        .padding(10.5)
+        .frame(maxWidth: .infinity, minHeight: 86, alignment: .leading)
         .background(
             ZStack {
-                RoundedRectangle(cornerRadius: 20)
+                RoundedRectangle(cornerRadius: 17)
                     .fill(.ultraThinMaterial)
-                RoundedRectangle(cornerRadius: 20)
+                RoundedRectangle(cornerRadius: 17)
                     .fill(
                         LinearGradient(
                             colors: isOn
-                                ? [Color.cyan.opacity(0.22), Color.blue.opacity(0.08)]
+                                ? [Color.cyan.opacity(0.24), Color.blue.opacity(0.08)]
                                 : [Color.white.opacity(0.05), Color.black.opacity(0.25)],
                             startPoint: .topLeading,
                             endPoint: .bottomTrailing
                         )
                     )
                 
-                // TIA SÁNG QUÉT CHÉO KHI KÍCH HOẠT
+                // DẢI SÁNG SHIMMER QUÉT CHÉO KHI KÍCH HOẠT
                 if isOn {
                     LinearGradient(
-                        colors: [.clear, Color.white.opacity(0.35), .clear],
+                        colors: [.clear, Color.white.opacity(0.38), .clear],
                         startPoint: .leading,
                         endPoint: .trailing
                     )
-                    .frame(width: 75)
+                    .frame(width: 65)
                     .rotationEffect(.degrees(22))
                     .offset(x: sweepOffset)
                     .allowsHitTesting(false)
@@ -1006,32 +1038,32 @@ private struct BentoModCard: View {
             }
         )
         .environment(\.colorScheme, .dark)
-        .clipShape(RoundedRectangle(cornerRadius: 20))
+        .clipShape(RoundedRectangle(cornerRadius: 17))
         .overlay(
-            RoundedRectangle(cornerRadius: 20)
+            RoundedRectangle(cornerRadius: 17)
                 .stroke(
                     isOn
                     ? LinearGradient(colors: [.white, .cyan], startPoint: .topLeading, endPoint: .bottomTrailing)
-                    : LinearGradient(colors: [Color.white.opacity(0.18), Color.white.opacity(0.06)], startPoint: .topLeading, endPoint: .bottomTrailing),
-                    lineWidth: isOn ? 1.5 : 1
+                    : LinearGradient(colors: [Color.white.opacity(0.22), Color.white.opacity(0.06)], startPoint: .topLeading, endPoint: .bottomTrailing),
+                    lineWidth: isOn ? 1.4 : 0.9
                 )
         )
-        .shadow(color: isOn ? .cyan.opacity(0.28) : .clear, radius: 10, y: 4)
+        .shadow(color: isOn ? .cyan.opacity(0.26) : .clear, radius: 8, y: 3)
         .contentShape(Rectangle())
         .onTapGesture {
             guard !busy, (hasLink || isOn) else { return }
             toggleFeature(currentlyOn: isOn)
         }
         .opacity(hasLink ? 1 : 0.48)
-        .animation(.spring(response: 0.26, dampingFraction: 0.75), value: isOn)
+        .animation(.spring(response: 0.24, dampingFraction: 0.74), value: isOn)
         .onChange(of: isOn) { active in
             if active {
-                sweepOffset = -150
-                rippleScale = 0.8
-                rippleOpacity = 0.9
-                withAnimation(.easeOut(duration: 0.55)) {
-                    sweepOffset = 180
-                    rippleScale = 1.9
+                sweepOffset = -140
+                rippleScale = 0.85
+                rippleOpacity = 0.95
+                withAnimation(.easeOut(duration: 0.5)) {
+                    sweepOffset = 170
+                    rippleScale = 2.0
                     rippleOpacity = 0.0
                 }
             }
@@ -1054,16 +1086,15 @@ private struct BentoModCard: View {
     
     private func toggleFeature(currentlyOn: Bool) {
         if currentlyOn {
-            iPhoneChimeEngine.shared.playiPhoneTickOff()
-            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            iPhoneNativeFeedback.tickOff()
             Task { await store.setMultiEnabled(false, item: item) }
             return
         }
         
         guard isSessionActive else { return }
         
-        iPhoneChimeEngine.shared.playiPhoneTickOn()
-        UINotificationFeedbackGenerator().notificationOccurred(.success)
+        // Phát tiếng "Tích" gốc của iPhone + Taptic rung xác nhận
+        iPhoneNativeFeedback.tickOn()
         
         Task {
             await store.setMultiEnabled(true, item: item)
@@ -1121,9 +1152,8 @@ struct ModDetailSheet: View {
                                         .foregroundColor(.white)
                                     Spacer()
                                     Button {
-                                        iPhoneChimeEngine.shared.playSystemTock()
+                                        iPhoneNativeFeedback.tickOn()
                                         UIPasteboard.general.string = guide
-                                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                                         copied = true
                                         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { copied = false }
                                     } label: {
@@ -1152,7 +1182,7 @@ struct ModDetailSheet: View {
                                 
                                 if isYouTubeLink {
                                     Button {
-                                        iPhoneChimeEngine.shared.playSystemTock()
+                                        iPhoneNativeFeedback.tap()
                                         if let url = URL(string: guide.trimmingCharacters(in: .whitespacesAndNewlines)) {
                                             UIApplication.shared.open(url)
                                         }
@@ -1192,7 +1222,7 @@ struct ModDetailSheet: View {
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Đóng") {
-                        iPhoneChimeEngine.shared.playSystemTock()
+                        iPhoneNativeFeedback.tap()
                         dismiss()
                     }
                     .foregroundColor(.cyan)
