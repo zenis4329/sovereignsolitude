@@ -84,177 +84,134 @@ struct SecureCatalogImage: View {
 }
 
 // ==========================================================
-// MARK: - 🌌 BACKGROUND EFFECTS (ĐEN TUYỀN & ÁNH SÁNG TRẮNG NEON)
+// MARK: - 🌌 BACKGROUND EFFECTS (TỐI ƯU GPU - KHÔNG BLUR NẶNG)
 // ==========================================================
-struct AuroraWaves: View {
-    var body: some View {
-        TimelineView(.animation) { timeline in
-            let t = timeline.date.timeIntervalSinceReferenceDate
-            Canvas { ctx, size in
-                let colors: [Color] = [
-                    Color.white,
-                    Color(white: 0.85),
-                    Color(white: 0.7)
-                ]
-                for i in 0..<3 {
-                    var path = Path()
-                    let phase = Double(i) * 2.2
-                    let amplitude = size.height * 0.08
-                    let yBase = size.height * (0.35 + Double(i) * 0.18)
-                    path.move(to: CGPoint(x: 0, y: yBase))
-                    for x in stride(from: 0, through: size.width, by: 6) {
-                        let y = yBase + sin((Double(x) / 120) + t * 0.55 + phase) * amplitude
-                        path.addLine(to: CGPoint(x: x, y: y))
-                    }
-                    path.addLine(to: CGPoint(x: size.width, y: size.height))
-                    path.addLine(to: CGPoint(x: 0, y: size.height))
-                    path.closeSubpath()
-                    ctx.fill(path, with: .color(colors[i].opacity(0.045)))
-                }
-            }
-        }
-        .blur(radius: 42).allowsHitTesting(false)
-    }
-}
+private struct UnifiedSpaceCanvas: View {
+    let particleCount: Int
+    let starCount: Int
 
-struct ShootingStars: View {
-    var body: some View {
-        TimelineView(.animation) { timeline in
-            let t = timeline.date.timeIntervalSinceReferenceDate
-            Canvas { ctx, size in
-                for i in 0..<4 {
-                    let period = 4.5 + Double(i) * 1.8
-                    let offset = Double(i) * 1.4
-                    let progress = (t + offset).truncatingRemainder(dividingBy: period) / period
-                    if progress < 0.12 {
-                        let localProgress = progress / 0.12
-                        let startX = size.width * (0.05 + Double(i) * 0.28)
-                        let startY = size.height * (0.05 + Double(i % 2) * 0.15)
-                        let length: CGFloat = 140
-                        let x = startX + localProgress * 500
-                        let y = startY + localProgress * 380
-                        let alpha = 1 - localProgress
-                        var path = Path()
-                        path.move(to: CGPoint(x: x - length, y: y - length * 0.76))
-                        path.addLine(to: CGPoint(x: x, y: y))
-                        ctx.stroke(
-                            path,
-                            with: .linearGradient(
-                                Gradient(colors: [.clear, Color.white.opacity(alpha * 0.55), Color.white.opacity(alpha)]),
-                                startPoint: CGPoint(x: x - length, y: y - length * 0.76),
-                                endPoint: CGPoint(x: x, y: y)
-                            ),
-                            style: StrokeStyle(lineWidth: 1.5, lineCap: .round)
-                        )
-                        let head = CGRect(x: x - 2.5, y: y - 2.5, width: 5, height: 5)
-                        ctx.fill(Ellipse().path(in: head), with: .color(.white.opacity(alpha)))
-                    }
-                }
-            }
-        }.allowsHitTesting(false)
-    }
-}
-
-struct TwinkleStars: View {
-    var count: Int = 42
-    struct Star: Identifiable {
-        let id = UUID()
+    struct Star {
         let xRatio: CGFloat; let yRatio: CGFloat; let size: CGFloat; let phase: Double; let speed: Double
     }
+    struct Particle {
+        let xRatio: CGFloat; let startOffset: Double; let speed: Double; let size: CGFloat; let opacity: Double; let sway: Double; let brightness: Double
+    }
+
     @State private var stars: [Star] = []
+    @State private var particles: [Particle] = []
+
     var body: some View {
         GeometryReader { geo in
-            TimelineView(.animation) { timeline in
+            TimelineView(.animation(minimumInterval: 1.0 / 36.0)) { timeline in
                 let t = timeline.date.timeIntervalSinceReferenceDate
-                Canvas { ctx, size in
+                Canvas(opaque: false, rendersAsynchronously: true) { ctx, size in
+                    // 1. Sao nhấp nháy
                     for s in stars {
-                        let alpha = 0.18 + 0.72 * (0.5 + 0.5 * sin(t * s.speed + s.phase))
+                        let alpha = 0.16 + 0.65 * (0.5 + 0.5 * sin(t * s.speed + s.phase))
                         let rect = CGRect(x: s.xRatio * size.width, y: s.yRatio * size.height, width: s.size, height: s.size)
                         ctx.fill(Ellipse().path(in: rect), with: .color(.white.opacity(alpha)))
                     }
-                }
-            }
-            .onAppear {
-                stars = (0..<count).map { _ in Star(xRatio: .random(in: 0...1), yRatio: .random(in: 0...1), size: .random(in: 1...2.6), phase: .random(in: 0...6.28), speed: .random(in: 1.2...3.2)) }
-            }
-        }.allowsHitTesting(false)
-    }
-}
 
-struct FallingParticles: View {
-    var count: Int = 32
-    struct P: Identifiable {
-        let id = UUID()
-        let xRatio: CGFloat; let startOffset: Double; let speed: Double; let size: CGFloat; let opacity: Double; let sway: Double; let color: Color
-    }
-    @State private var particles: [P] = []
-    var body: some View {
-        GeometryReader { geo in
-            TimelineView(.animation) { timeline in
-                let t = timeline.date.timeIntervalSinceReferenceDate
-                Canvas { ctx, size in
+                    // 2. Hạt rơi trắng neon
+                    let heightSpan = Double(size.height) + 40
                     for p in particles {
-                        let travel = (p.startOffset + t * p.speed).truncatingRemainder(dividingBy: Double(size.height) + 40) - 20
-                        let sway = sin(t * 0.55 + p.sway) * 7
+                        let travel = (p.startOffset + t * p.speed).truncatingRemainder(dividingBy: heightSpan) - 20
+                        let sway = sin(t * 0.55 + p.sway) * 6
                         let rect = CGRect(x: p.xRatio * size.width + CGFloat(sway), y: CGFloat(travel), width: p.size, height: p.size)
-                        ctx.fill(Ellipse().path(in: rect), with: .color(p.color.opacity(p.opacity)))
+                        ctx.fill(Ellipse().path(in: rect), with: .color(Color(white: p.brightness).opacity(p.opacity)))
+                    }
+
+                    // 3. Sao băng trắng
+                    for i in 0..<3 {
+                        let period = 5.0 + Double(i) * 2.1
+                        let offset = Double(i) * 1.7
+                        let progress = (t + offset).truncatingRemainder(dividingBy: period) / period
+                        if progress < 0.11 {
+                            let localProgress = progress / 0.11
+                            let startX = size.width * (0.08 + Double(i) * 0.3)
+                            let startY = size.height * (0.06 + Double(i % 2) * 0.14)
+                            let length: CGFloat = 120
+                            let x = startX + localProgress * 460
+                            let y = startY + localProgress * 340
+                            let alpha = 1.0 - localProgress
+
+                            var path = Path()
+                            path.move(to: CGPoint(x: x - length, y: y - length * 0.74))
+                            path.addLine(to: CGPoint(x: x, y: y))
+                            ctx.stroke(
+                                path,
+                                with: .linearGradient(
+                                    Gradient(colors: [.clear, Color.white.opacity(alpha * 0.45), Color.white.opacity(alpha)]),
+                                    startPoint: CGPoint(x: x - length, y: y - length * 0.74),
+                                    endPoint: CGPoint(x: x, y: y)
+                                ),
+                                style: StrokeStyle(lineWidth: 1.3, lineCap: .round)
+                            )
+                            let head = CGRect(x: x - 2, y: y - 2, width: 4, height: 4)
+                            ctx.fill(Ellipse().path(in: head), with: .color(.white.opacity(alpha)))
+                        }
                     }
                 }
             }
             .onAppear {
-                particles = (0..<count).map { _ in
-                    P(
-                        xRatio: .random(in: 0...1),
-                        startOffset: .random(in: 0...Double(geo.size.height)),
-                        speed: .random(in: 10...28),
-                        size: .random(in: 1.2...3.6),
-                        opacity: .random(in: 0.25...0.8),
-                        sway: .random(in: 0...6.28),
-                        color: [Color.white, Color(white: 0.85), Color(white: 0.7)].randomElement() ?? .white
-                    )
+                if stars.isEmpty {
+                    stars = (0..<starCount).map { _ in
+                        Star(xRatio: .random(in: 0...1), yRatio: .random(in: 0...1), size: .random(in: 1...2.4), phase: .random(in: 0...6.28), speed: .random(in: 1.2...3.0))
+                    }
+                }
+                if particles.isEmpty {
+                    let h = max(Double(geo.size.height), 600)
+                    particles = (0..<particleCount).map { _ in
+                        Particle(xRatio: .random(in: 0...1), startOffset: .random(in: 0...h), speed: .random(in: 10...26), size: .random(in: 1.2...3.2), opacity: .random(in: 0.25...0.75), sway: .random(in: 0...6.28), brightness: [1.0, 0.88, 0.75].randomElement() ?? 1.0)
+                    }
                 }
             }
-        }.allowsHitTesting(false)
-    }
-}
-
-struct PulsingOrb: View {
-    let color: Color; let size: CGFloat; let xOffset: CGFloat; let yOffset: CGFloat; let duration: Double
-    @State private var pulse = false
-    var body: some View {
-        Circle().fill(color.opacity(0.08)).frame(width: size, height: size).blur(radius: 115)
-            .scaleEffect(pulse ? 1.18 : 0.9).opacity(pulse ? 0.9 : 0.45)
-            .offset(x: xOffset, y: yOffset)
-            .animation(.easeInOut(duration: duration).repeatForever(autoreverses: true), value: pulse)
-            .onAppear { pulse = true }.allowsHitTesting(false)
+        }
+        .allowsHitTesting(false)
     }
 }
 
 struct ModernBackground: View {
     let urlString: String
-    var particleCount: Int = 32
+    var particleCount: Int = 26
+
     var body: some View {
         GeometryReader { geo in
             ZStack {
                 Color.black
+
                 SecureCatalogImage(urlString: urlString, placeholder: Image(systemName: "sparkles"))
                     .frame(width: geo.size.width, height: geo.size.height)
-                    .saturation(0)
-                    .opacity(0.16)
+                    .saturation(0.25)
+                    .opacity(0.38)
+
                 LinearGradient(
-                    colors: [Color.black.opacity(0.65), Color.black.opacity(0.94), Color.black],
+                    colors: [
+                        Color.black.opacity(0.42),
+                        Color.black.opacity(0.72),
+                        Color.black.opacity(0.94)
+                    ],
                     startPoint: .top,
                     endPoint: .bottom
                 )
-                AuroraWaves().opacity(0.8)
-                PulsingOrb(color: .white, size: 300, xOffset: -150, yOffset: -260, duration: 4.5)
-                PulsingOrb(color: .white, size: 250, xOffset:  170, yOffset:  400, duration: 5.5)
-                TwinkleStars(count: 42).opacity(0.9)
-                FallingParticles(count: particleCount).opacity(0.9)
-                ShootingStars().opacity(0.95)
+
+                RadialGradient(
+                    colors: [Color.white.opacity(0.08), Color.clear],
+                    center: .topLeading,
+                    startRadius: 10,
+                    endRadius: 320
+                )
+                RadialGradient(
+                    colors: [Color.white.opacity(0.05), Color.clear],
+                    center: .bottomTrailing,
+                    startRadius: 10,
+                    endRadius: 280
+                )
+
+                UnifiedSpaceCanvas(particleCount: particleCount, starCount: 34)
             }
-        }.ignoresSafeArea()
-        .drawingGroup()
+        }
+        .ignoresSafeArea()
     }
 }
 
@@ -269,14 +226,13 @@ struct SparkleBurst: View {
                 let angle = Double(i) * .pi / 4
                 Circle()
                     .fill(Color.white)
-                    .shadow(color: .white, radius: 4)
-                    .frame(width: 5, height: 5)
+                    .frame(width: 4.5, height: 4.5)
                     .offset(
-                        x: trigger ? CGFloat(cos(angle)) * 34 : 0,
-                        y: trigger ? CGFloat(sin(angle)) * 34 : 0
+                        x: trigger ? CGFloat(cos(angle)) * 32 : 0,
+                        y: trigger ? CGFloat(sin(angle)) * 32 : 0
                     )
                     .opacity(trigger ? 0 : 1)
-                    .scaleEffect(trigger ? 1.8 : 0.3)
+                    .scaleEffect(trigger ? 1.7 : 0.3)
             }
         }
         .allowsHitTesting(false)
@@ -284,29 +240,41 @@ struct SparkleBurst: View {
 }
 
 // ==========================================================
-// MARK: - 🌟 AVATAR ORBITS (TRẮNG NEON)
+// MARK: - 🌟 AVATAR ORBITS
 // ==========================================================
 struct AvatarOrbits: View {
     let ringSize: CGFloat; let dotCount: Int; let dotSize: CGFloat; let speed: Double; let color: Color; var reverse: Bool = false
     var body: some View {
-        TimelineView(.animation) { timeline in
+        TimelineView(.animation(minimumInterval: 1.0 / 36.0)) { timeline in
             let t = timeline.date.timeIntervalSinceReferenceDate
-            Canvas { ctx, size in
-                let center = CGPoint(x: size.width/2, y: size.height/2)
-                let radius = size.width/2 - dotSize
+            Canvas(opaque: false, rendersAsynchronously: true) { ctx, size in
+                let center = CGPoint(x: size.width / 2, y: size.height / 2)
+                let outerRadius = size.width / 2 - dotSize
+                let innerRadius = outerRadius - 5.5
+
                 for i in 0..<dotCount {
                     let direction = reverse ? -1.0 : 1.0
                     let angle = t * speed * direction + Double(i) * (.pi * 2 / Double(dotCount))
-                    let x = center.x + CGFloat(cos(angle)) * radius
-                    let y = center.y + CGFloat(sin(angle)) * radius
-                    let rect = CGRect(x: x - dotSize/2, y: y - dotSize/2, width: dotSize, height: dotSize)
-                    let glowRect = rect.insetBy(dx: -1.8, dy: -1.8)
-                    ctx.fill(Ellipse().path(in: glowRect), with: .color(color.opacity(0.4)))
+                    let x = center.x + CGFloat(cos(angle)) * outerRadius
+                    let y = center.y + CGFloat(sin(angle)) * outerRadius
+                    let rect = CGRect(x: x - dotSize / 2, y: y - dotSize / 2, width: dotSize, height: dotSize)
+                    ctx.fill(Ellipse().path(in: rect.insetBy(dx: -1.4, dy: -1.4)), with: .color(color.opacity(0.3)))
                     ctx.fill(Ellipse().path(in: rect), with: .color(color))
                 }
+
+                let innerCount = max(4, dotCount - 3)
+                let innerDot = max(2.2, dotSize - 0.8)
+                for i in 0..<innerCount {
+                    let angle = -t * (speed * 1.3) + Double(i) * (.pi * 2 / Double(innerCount))
+                    let x = center.x + CGFloat(cos(angle)) * innerRadius
+                    let y = center.y + CGFloat(sin(angle)) * innerRadius
+                    let rect = CGRect(x: x - innerDot / 2, y: y - innerDot / 2, width: innerDot, height: innerDot)
+                    ctx.fill(Ellipse().path(in: rect), with: .color(Color(white: 0.75).opacity(0.85)))
+                }
             }
-        }.frame(width: ringSize, height: ringSize).allowsHitTesting(false)
-        .drawingGroup()
+        }
+        .frame(width: ringSize, height: ringSize)
+        .allowsHitTesting(false)
     }
 }
 
@@ -327,7 +295,6 @@ struct StatusCard: View {
             Image(systemName: icon)
                 .font(.system(size: 16, weight: .semibold))
                 .foregroundColor(color)
-                .shadow(color: color.opacity(0.7), radius: 5)
             Text(value)
                 .font(.system(size: 13, weight: .bold, design: .rounded))
                 .foregroundColor(.white)
@@ -338,20 +305,19 @@ struct StatusCard: View {
         .frame(maxWidth: .infinity).padding(.vertical, 14)
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(Color.black.opacity(0.85))
+                .fill(Color.black.opacity(0.78))
         )
         .overlay(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .strokeBorder(
                     LinearGradient(
-                        colors: [Color.white.opacity(0.8), Color.white.opacity(0.25), Color.white.opacity(0.65)],
+                        colors: [Color.white.opacity(0.85), Color.white.opacity(0.25), Color.white.opacity(0.7)],
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
                     ),
                     lineWidth: 1.1
                 )
         )
-        .shadow(color: .white.opacity(0.18), radius: 7)
     }
 }
 
@@ -362,9 +328,8 @@ struct GameCatalogView: View {
     @StateObject private var store = GameCatalogStore.shared
     @StateObject private var authManager = CustomAuthManager.shared
     @Binding var isTabBarHidden: Bool
-    @State private var glowPulse = false
     @State private var ringRotate: Double = 0
-    @State private var haloScale: CGFloat = 1.0
+    @State private var isDisablingAll = false
     
     // Nút gạt ANTIBAN (Chỉ làm cảnh)
     @AppStorage("isAntiBanFakeEnabled") private var isAntiBanFakeEnabled: Bool = true
@@ -373,10 +338,16 @@ struct GameCatalogView: View {
         authManager.isAuthorized && !authManager.isInteractionLocked && !store.catalog.resolvedMaintenanceEnabled
     }
 
+    private var allEnabledItems: [GameCatalogItem] {
+        store.catalog.orderedGames
+            .flatMap { $0.items }
+            .filter { store.isMultiItemOn(item: $0) }
+    }
+
     var body: some View {
         NavigationStack {
             ZStack {
-                ModernBackground(urlString: authManager.publicBackgroundURL, particleCount: 36)
+                ModernBackground(urlString: authManager.publicBackgroundURL, particleCount: 24)
                 ScrollView(showsIndicators: false) {
                     VStack(spacing: 16) {
                         profileCard
@@ -391,14 +362,44 @@ struct GameCatalogView: View {
             }
             .toolbar(.hidden, for: .navigationBar)
             .onAppear {
-                glowPulse = true
                 store.rememberCatalogItems()
-                withAnimation(.linear(duration: 12).repeatForever(autoreverses: false)) { ringRotate = 360 }
-                withAnimation(.easeInOut(duration: 2.8).repeatForever(autoreverses: true)) { haloScale = 1.15 }
-                if !authManager.isAuthorized || store.catalog.resolvedMaintenanceEnabled { store.disableAllEnabledMods() }
+                withAnimation(.linear(duration: 14).repeatForever(autoreverses: false)) { ringRotate = 360 }
+                if !authManager.isAuthorized || store.catalog.resolvedMaintenanceEnabled {
+                    forceDisableAllMods(playSound: false)
+                }
             }
-            .onChange(of: authManager.isAuthorized) { a in if !a { isTabBarHidden = false; store.disableAllEnabledMods() } }
-            .onChange(of: store.catalog.resolvedMaintenanceEnabled) { m in if m { isTabBarHidden = false; store.disableAllEnabledMods() } }
+            .onChange(of: authManager.isAuthorized) { a in
+                if !a {
+                    isTabBarHidden = false
+                    forceDisableAllMods(playSound: false)
+                }
+            }
+            .onChange(of: store.catalog.resolvedMaintenanceEnabled) { m in
+                if m {
+                    isTabBarHidden = false
+                    forceDisableAllMods(playSound: false)
+                }
+            }
+        }
+    }
+
+    private func forceDisableAllMods(playSound: Bool = true) {
+        guard !isDisablingAll else { return }
+        let targets = allEnabledItems
+        if playSound { iPhoneHaptics.shared.playTickOff() }
+        isDisablingAll = true
+        Task {
+            store.disableAllEnabledMods()
+            for item in targets {
+                if store.isMultiItemOn(item: item) {
+                    await store.setMultiEnabled(false, item: item)
+                }
+            }
+            await MainActor.run {
+                withAnimation(.spring(response: 0.26, dampingFraction: 0.8)) {
+                    isDisablingAll = false
+                }
+            }
         }
     }
 
@@ -411,15 +412,15 @@ struct GameCatalogView: View {
                 Text(authManager.publicAppName.isEmpty ? "Sovereign Solitude" : authManager.publicAppName)
                     .font(.system(size: 18, weight: .black, design: .rounded))
                     .foregroundColor(.white).lineLimit(1)
-                    .shadow(color: .white.opacity(0.55), radius: 7)
+                    .shadow(color: .white.opacity(0.45), radius: 5)
                 
                 HStack(spacing: 6) {
                     HStack(spacing: 4) {
-                        Circle().fill(Color.green).frame(width: 5, height: 5).shadow(color: .green, radius: 4)
+                        Circle().fill(Color.green).frame(width: 5, height: 5)
                         Text("Online").font(.system(size: 9.5, weight: .bold)).foregroundColor(.white)
                     }
                     .padding(.horizontal, 7).padding(.vertical, 2.5)
-                    .background(Color.black.opacity(0.8)).clipShape(Capsule())
+                    .background(Color.black.opacity(0.75)).clipShape(Capsule())
                     .overlay(Capsule().strokeBorder(Color.white.opacity(0.45), lineWidth: 0.8))
                     
                     if isAntiBanFakeEnabled {
@@ -429,9 +430,8 @@ struct GameCatalogView: View {
                         }
                         .foregroundColor(.white)
                         .padding(.horizontal, 7).padding(.vertical, 2.5)
-                        .background(Color.white.opacity(0.12)).clipShape(Capsule())
-                        .overlay(Capsule().strokeBorder(Color.white.opacity(0.75), lineWidth: 0.9))
-                        .shadow(color: .white.opacity(0.35), radius: 4)
+                        .background(Color.white.opacity(0.14)).clipShape(Capsule())
+                        .overlay(Capsule().strokeBorder(Color.white.opacity(0.8), lineWidth: 0.9))
                         .transition(.scale.combined(with: .opacity))
                     }
                 }
@@ -439,25 +439,30 @@ struct GameCatalogView: View {
 
             Spacer(minLength: 4)
 
-            if totalEnabledAll > 0 {
+            if totalEnabledAll > 0 || isDisablingAll {
                 Button {
-                    iPhoneHaptics.shared.playTickOff()
-                    withAnimation(.spring(response: 0.26, dampingFraction: 0.8)) { store.disableAllEnabledMods() }
+                    forceDisableAllMods(playSound: true)
                 } label: {
                     VStack(spacing: 2) {
-                        Image(systemName: "power").font(.system(size: 13, weight: .black))
-                        Text("Tắt hết").font(.system(size: 8.5, weight: .black))
+                        if isDisablingAll {
+                            ProgressView().tint(.black).scaleEffect(0.75)
+                        } else {
+                            Image(systemName: "power").font(.system(size: 13, weight: .black))
+                        }
+                        Text(isDisablingAll ? "Đang tắt" : "Tắt hết")
+                            .font(.system(size: 8.5, weight: .black))
                     }
-                    .foregroundColor(.black).frame(width: 46, height: 46)
+                    .foregroundColor(.black).frame(width: 48, height: 48)
                     .background(LinearGradient(colors: [.white, Color(white: 0.86)], startPoint: .topLeading, endPoint: .bottomTrailing))
                     .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
                     .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous).strokeBorder(Color.white, lineWidth: 1))
-                    .shadow(color: .white.opacity(0.6), radius: 8)
-                }.buttonStyle(ClassicScaleButtonStyle())
+                }
+                .disabled(isDisablingAll)
+                .buttonStyle(ClassicScaleButtonStyle())
             }
         }
         .padding(14)
-        .background(RoundedRectangle(cornerRadius: 22, style: .continuous).fill(Color.black.opacity(0.85)))
+        .background(RoundedRectangle(cornerRadius: 22, style: .continuous).fill(Color.black.opacity(0.78)))
         .overlay(
             RoundedRectangle(cornerRadius: 22, style: .continuous)
                 .strokeBorder(
@@ -469,26 +474,24 @@ struct GameCatalogView: View {
                     lineWidth: 1.3
                 )
         )
-        .shadow(color: .white.opacity(0.24), radius: 14, y: 3)
+        .shadow(color: .white.opacity(0.2), radius: 10)
         .padding(.horizontal, 16).padding(.top, 10)
     }
 
     private var avatarView: some View {
         ZStack {
-            Circle().fill(Color.white.opacity(0.28)).frame(width: 82, height: 82).blur(radius: 22).scaleEffect(haloScale).opacity(glowPulse ? 0.95 : 0.45)
-            AvatarOrbits(ringSize: 86, dotCount: 8, dotSize: 3.5, speed: 0.65, color: .white)
-            AvatarOrbits(ringSize: 78, dotCount: 5, dotSize: 2.8, speed: 0.9, color: Color(white: 0.75), reverse: true)
             Circle()
-                .stroke(AngularGradient(colors: [.white, Color(white: 0.4), .white, Color(white: 0.75), .white], center: .center), style: StrokeStyle(lineWidth: 2.4, dash: [4, 6]))
+                .fill(RadialGradient(colors: [Color.white.opacity(0.32), Color.clear], center: .center, startRadius: 22, endRadius: 44))
+                .frame(width: 88, height: 88)
+            AvatarOrbits(ringSize: 84, dotCount: 7, dotSize: 3.2, speed: 0.65, color: .white)
+            Circle()
+                .stroke(AngularGradient(colors: [.white, Color(white: 0.35), .white, Color(white: 0.75), .white], center: .center), style: StrokeStyle(lineWidth: 2.2, dash: [4, 6]))
                 .frame(width: 64, height: 64).rotationEffect(.degrees(ringRotate))
-            Circle().stroke(Color.white.opacity(0.35), lineWidth: 1).frame(width: 56, height: 56)
             SecureCatalogImage(urlString: authManager.publicAvatarURL, placeholder: Image(systemName: "person.crop.circle.fill"))
                 .frame(width: 54, height: 54).clipShape(Circle())
-                .overlay(Circle().strokeBorder(Color.white.opacity(0.85), lineWidth: 1.2))
-                .shadow(color: .white.opacity(0.65), radius: 8)
+                .overlay(Circle().strokeBorder(Color.white.opacity(0.9), lineWidth: 1.2))
         }
-        .frame(width: 90, height: 90)
-        .drawingGroup()
+        .frame(width: 88, height: 88)
     }
 
     // MARK: FEATURED GAME CARD
@@ -503,15 +506,13 @@ struct GameCatalogView: View {
                                 .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                                 .overlay(
                                     RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                        .strokeBorder(LinearGradient(colors: [.white, Color.white.opacity(0.45)], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1.5)
+                                        .strokeBorder(LinearGradient(colors: [.white, Color.white.opacity(0.45)], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1.4)
                                 )
-                                .shadow(color: .white.opacity(0.45), radius: 8)
                             
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(game.name)
                                     .font(.system(size: 20, weight: .bold, design: .rounded))
                                     .foregroundColor(.white)
-                                    .shadow(color: .white.opacity(0.3), radius: 4)
                                 Text("Hệ thống Mod & Bypass")
                                     .font(.system(size: 12, weight: .medium))
                                     .foregroundColor(.white.opacity(0.7))
@@ -522,7 +523,6 @@ struct GameCatalogView: View {
                                 .frame(width: 32, height: 32)
                                 .background(LinearGradient(colors: [.white, Color(white: 0.85)], startPoint: .topLeading, endPoint: .bottomTrailing))
                                 .clipShape(Circle())
-                                .shadow(color: .white.opacity(0.6), radius: 7)
                         }
                         
                         Divider().background(Color.white.opacity(0.22))
@@ -535,11 +535,10 @@ struct GameCatalogView: View {
                             Text("VÀO MENU CHỨC NĂNG")
                                 .font(.system(size: 12, weight: .black, design: .rounded))
                                 .foregroundColor(.white)
-                                .shadow(color: .white.opacity(0.45), radius: 4)
                         }
                     }
                     .padding(16)
-                    .background(RoundedRectangle(cornerRadius: 22, style: .continuous).fill(Color.black.opacity(0.85)))
+                    .background(RoundedRectangle(cornerRadius: 22, style: .continuous).fill(Color.black.opacity(0.78)))
                     .overlay(
                         RoundedRectangle(cornerRadius: 22, style: .continuous)
                             .strokeBorder(
@@ -551,7 +550,7 @@ struct GameCatalogView: View {
                                 lineWidth: 1.3
                             )
                     )
-                    .shadow(color: .white.opacity(0.22), radius: 14, y: 4)
+                    .shadow(color: .white.opacity(0.18), radius: 10)
                 }
                 .buttonStyle(ClassicScaleButtonStyle())
                 .padding(.horizontal, 16)
@@ -584,15 +583,13 @@ struct GameCatalogView: View {
         VStack(spacing: 12) {
             HStack(spacing: 14) {
                 Image(systemName: isAntiBanFakeEnabled ? "checkmark.shield.fill" : "xmark.shield.fill")
-                    .font(.system(size: 38))
+                    .font(.system(size: 36))
                     .foregroundColor(isAntiBanFakeEnabled ? .white : .red)
-                    .shadow(color: (isAntiBanFakeEnabled ? Color.white : Color.red).opacity(0.8), radius: 10)
                 
                 VStack(alignment: .leading, spacing: 4) {
                     Text(isAntiBanFakeEnabled ? "ANTIBAN ONLINE" : "ANTIBAN ĐÃ TẮT")
                         .font(.system(size: 15, weight: .black, design: .rounded))
                         .foregroundColor(isAntiBanFakeEnabled ? .white : .red)
-                        .shadow(color: isAntiBanFakeEnabled ? .white.opacity(0.4) : .clear, radius: 4)
                     
                     Text(isAntiBanFakeEnabled ? "Hệ thống đang bảo vệ bạn an toàn." : "Cảnh báo: Nguy cơ bị ban rất cao!")
                         .font(.system(size: 11.5, weight: .medium))
@@ -614,7 +611,7 @@ struct GameCatalogView: View {
         .padding(18)
         .background(
             RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .fill(Color.black.opacity(0.85))
+                .fill(Color.black.opacity(0.78))
         )
         .overlay(
             RoundedRectangle(cornerRadius: 22, style: .continuous)
@@ -629,14 +626,13 @@ struct GameCatalogView: View {
                     lineWidth: 1.3
                 )
         )
-        .shadow(color: isAntiBanFakeEnabled ? .white.opacity(0.22) : .red.opacity(0.28), radius: 12)
         .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isAntiBanFakeEnabled)
         .padding(.horizontal, 16)
         .padding(.top, 4)
     }
 
     private var totalEnabledAll: Int {
-        store.catalog.orderedGames.reduce(0) { $0 + $1.items.filter { $0.hidden != true && store.isMultiItemOn(item: $0) }.count }
+        allEnabledItems.count
     }
 }
 
@@ -650,6 +646,7 @@ private struct GameDetailView: View {
     @StateObject private var authManager = CustomAuthManager.shared
     @State private var selectedTabID = "aim"
     @State private var onlyActiveFilter = false
+    @State private var isDisablingAll = false
     @Environment(\.dismiss) private var dismiss
 
     private var catalog: GameCatalog { store.catalog }
@@ -663,7 +660,12 @@ private struct GameDetailView: View {
             .sorted { ($0.order ?? Int.max) < ($1.order ?? Int.max) }
     }
     private var activeCountInGame: Int { (game?.items ?? []).filter { $0.hidden != true && store.isMultiItemOn(item: $0) }.count }
-    private var totalActiveAllGames: Int { store.catalog.orderedGames.reduce(0) { $0 + $1.items.filter { $0.hidden != true && store.isMultiItemOn(item: $0) }.count } }
+    private var allActiveItems: [GameCatalogItem] {
+        store.catalog.orderedGames
+            .flatMap { $0.items }
+            .filter { store.isMultiItemOn(item: $0) }
+    }
+    private var totalActiveAllGames: Int { allActiveItems.count }
     
     private var availableTabs: [GameCatalogTab] {
         let fallback: [GameCatalogTab] = catalog.resolvedTabs
@@ -677,7 +679,7 @@ private struct GameDetailView: View {
 
     var body: some View {
         ZStack {
-            ModernBackground(urlString: authManager.publicBackgroundURL, particleCount: 22)
+            ModernBackground(urlString: authManager.publicBackgroundURL, particleCount: 16)
             VStack(spacing: 12) {
                 headerSection
                 categoryBar
@@ -689,14 +691,41 @@ private struct GameDetailView: View {
         .onAppear {
             store.rememberCatalogItems()
             if store.catalog.resolvedMaintenanceEnabled {
-                store.disableAllEnabledMods(); withAnimation { isTabBarHidden = false }; dismiss(); return
+                forceDisableAllAndDismiss()
+                return
             }
             withAnimation { isTabBarHidden = true }
             if !availableTabs.contains(where: { $0.id == selectedTabID }) { selectedTabID = availableTabs.first?.id ?? "aim" }
         }
         .onDisappear { withAnimation { isTabBarHidden = false } }
-        .onChange(of: authManager.isAuthorized) { a in if !a { store.disableAllEnabledMods(); withAnimation { isTabBarHidden = false }; dismiss() } }
-        .onChange(of: store.catalog.resolvedMaintenanceEnabled) { m in if m { store.disableAllEnabledMods(); withAnimation { isTabBarHidden = false }; dismiss() } }
+        .onChange(of: authManager.isAuthorized) { a in if !a { forceDisableAllAndDismiss() } }
+        .onChange(of: store.catalog.resolvedMaintenanceEnabled) { m in if m { forceDisableAllAndDismiss() } }
+    }
+
+    private func forceDisableAll(playSound: Bool = true) {
+        guard !isDisablingAll else { return }
+        let targets = allActiveItems
+        if playSound { iPhoneHaptics.shared.playTickOff() }
+        isDisablingAll = true
+        Task {
+            store.disableAllEnabledMods()
+            for item in targets {
+                if store.isMultiItemOn(item: item) {
+                    await store.setMultiEnabled(false, item: item)
+                }
+            }
+            await MainActor.run {
+                withAnimation(.spring(response: 0.28, dampingFraction: 0.78)) {
+                    isDisablingAll = false
+                }
+            }
+        }
+    }
+
+    private func forceDisableAllAndDismiss() {
+        forceDisableAll(playSound: false)
+        withAnimation { isTabBarHidden = false }
+        dismiss()
     }
 
     private var headerSection: some View {
@@ -706,46 +735,49 @@ private struct GameDetailView: View {
             } label: {
                 Image(systemName: "chevron.left").font(.system(size: 15, weight: .bold)).foregroundColor(.white)
                     .frame(width: 36, height: 36)
-                    .background(Circle().fill(Color.black.opacity(0.85)))
+                    .background(Circle().fill(Color.black.opacity(0.8)))
                     .overlay(Circle().strokeBorder(Color.white.opacity(0.65), lineWidth: 1.1))
-                    .shadow(color: .white.opacity(0.25), radius: 6)
             }
             VStack(alignment: .leading, spacing: 2) {
                 Text(game?.name ?? "Game")
                     .font(.system(size: 16, weight: .bold, design: .rounded))
                     .foregroundColor(.white).lineLimit(1)
-                    .shadow(color: .white.opacity(0.35), radius: 5)
                 HStack(spacing: 4) {
                     Circle()
                         .fill(activeCountInGame > 0 ? Color.white : Color.green)
                         .frame(width: 5, height: 5)
-                        .shadow(color: (activeCountInGame > 0 ? Color.white : Color.green).opacity(0.9), radius: 4)
                     Text(activeCountInGame > 0 ? "\(activeCountInGame) mod đang bật" : "Sẵn sàng")
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundColor(activeCountInGame > 0 ? .white : .white.opacity(0.6))
                 }
             }
             Spacer(minLength: 4)
-            if totalActiveAllGames > 0 {
+            if totalActiveAllGames > 0 || isDisablingAll {
                 Button {
-                    iPhoneHaptics.shared.playTickOff(); withAnimation(.spring(response: 0.28, dampingFraction: 0.78)) { store.disableAllEnabledMods() }
+                    forceDisableAll(playSound: true)
                 } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: "power").font(.system(size: 11, weight: .black))
-                        Text("Tắt all").font(.system(size: 10.5, weight: .black, design: .rounded))
-                        Text("\(totalActiveAllGames)")
-                            .font(.system(size: 9, weight: .black, design: .rounded))
-                            .foregroundColor(.white)
-                            .frame(minWidth: 16, minHeight: 16)
-                            .background(Color.black)
-                            .clipShape(Circle())
+                    HStack(spacing: 5) {
+                        if isDisablingAll {
+                            ProgressView().tint(.black).scaleEffect(0.7)
+                            Text("Đang tắt").font(.system(size: 10.5, weight: .black, design: .rounded))
+                        } else {
+                            Image(systemName: "power").font(.system(size: 11, weight: .black))
+                            Text("Tắt all").font(.system(size: 10.5, weight: .black, design: .rounded))
+                            Text("\(totalActiveAllGames)")
+                                .font(.system(size: 9, weight: .black, design: .rounded))
+                                .foregroundColor(.white)
+                                .frame(minWidth: 16, minHeight: 16)
+                                .background(Color.black)
+                                .clipShape(Circle())
+                        }
                     }
-                    .foregroundColor(.black).padding(.horizontal, 9).padding(.vertical, 7)
+                    .foregroundColor(.black).padding(.horizontal, 10).padding(.vertical, 7)
                     .background(LinearGradient(colors: [.white, Color(white: 0.85)], startPoint: .topLeading, endPoint: .bottomTrailing))
                     .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                     .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Color.white, lineWidth: 1))
-                    .shadow(color: .white.opacity(0.55), radius: 7)
-                }.buttonStyle(ClassicScaleButtonStyle())
+                }
+                .disabled(isDisablingAll)
+                .buttonStyle(ClassicScaleButtonStyle())
             }
             SecureCatalogImage(urlString: game?.iconURL ?? "", placeholder: Image(systemName: "gamecontroller.fill"))
                 .frame(width: 38, height: 38)
@@ -754,7 +786,6 @@ private struct GameDetailView: View {
                     RoundedRectangle(cornerRadius: 11, style: .continuous)
                         .strokeBorder(LinearGradient(colors: [.white, Color.white.opacity(0.45)], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1.3)
                 )
-                .shadow(color: .white.opacity(0.4), radius: 6)
         }.padding(.horizontal, 16).padding(.top, 6)
     }
 
@@ -778,7 +809,6 @@ private struct GameDetailView: View {
                 .background(LinearGradient(colors: [.white, Color(white: 0.88)], startPoint: .leading, endPoint: .trailing))
                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Color.white, lineWidth: 1))
-                .shadow(color: .white.opacity(0.5), radius: 8)
             }.frame(maxWidth: .infinity)
 
             Button {
@@ -794,7 +824,7 @@ private struct GameDetailView: View {
                     if onlyActiveFilter {
                         LinearGradient(colors: [.white, Color(white: 0.86)], startPoint: .topLeading, endPoint: .bottomTrailing)
                     } else {
-                        Color.black.opacity(0.85)
+                        Color.black.opacity(0.8)
                     }
                 })
                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
@@ -802,7 +832,6 @@ private struct GameDetailView: View {
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
                         .strokeBorder(onlyActiveFilter ? Color.white : Color.white.opacity(0.5), lineWidth: 1.1)
                 )
-                .shadow(color: onlyActiveFilter ? .white.opacity(0.5) : .white.opacity(0.15), radius: 7)
             }.buttonStyle(.plain)
         }.padding(.horizontal, 16)
     }
@@ -815,7 +844,7 @@ private struct GameDetailView: View {
                     Text(onlyActiveFilter ? "Chưa có mod nào đang bật" : "Không có mod trong mục này").font(.system(size: 13, weight: .medium)).foregroundColor(.white.opacity(0.6))
                 }
                 .frame(maxWidth: .infinity).padding(.vertical, 44)
-                .background(Color.black.opacity(0.8))
+                .background(Color.black.opacity(0.75))
                 .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Color.white.opacity(0.35), lineWidth: 1))
                 .padding(.horizontal, 16).padding(.top, 6)
@@ -842,9 +871,9 @@ private struct GameDetailView: View {
             .background(LinearGradient(colors: [.white, Color(white: 0.88)], startPoint: .leading, endPoint: .trailing))
             .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 15, style: .continuous).strokeBorder(Color.white, lineWidth: 1.2))
-            .shadow(color: .white.opacity(0.55), radius: 12, y: 3)
+            .shadow(color: .white.opacity(0.4), radius: 8)
         }.buttonStyle(ClassicScaleButtonStyle()).padding(.horizontal, 16).padding(.top, 8).padding(.bottom, 6)
-        .background(LinearGradient(colors: [Color.black.opacity(0.0), Color.black.opacity(0.92), Color.black], startPoint: .top, endPoint: .bottom).ignoresSafeArea())
+        .background(LinearGradient(colors: [Color.black.opacity(0.0), Color.black.opacity(0.9), Color.black], startPoint: .top, endPoint: .bottom).ignoresSafeArea())
     }
 }
 
@@ -887,12 +916,6 @@ private struct ModernModRow: View {
 
         HStack(spacing: 11) {
             ZStack {
-                if isOn {
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(Color.white.opacity(0.32))
-                        .frame(width: 44, height: 44)
-                        .blur(radius: 9)
-                }
                 SparkleBurst(trigger: burst).frame(width: 44, height: 44)
                 SecureCatalogImage(urlString: cardAvatarURL, placeholder: Image(systemName: "bolt.fill"))
                     .frame(width: 40, height: 40)
@@ -906,7 +929,6 @@ private struct ModernModRow: View {
                                 lineWidth: isOn ? 1.5 : 1.0
                             )
                     )
-                    .shadow(color: isOn ? .white.opacity(0.75) : .clear, radius: 6)
                     .scaleEffect(iconScale)
             }
             VStack(alignment: .leading, spacing: 3) {
@@ -914,7 +936,6 @@ private struct ModernModRow: View {
                     Text(item.name)
                         .font(.system(size: 13.5, weight: .bold, design: .rounded))
                         .foregroundColor(.white).lineLimit(1)
-                        .shadow(color: isOn ? .white.opacity(0.45) : .clear, radius: 4)
                     if hasBadge {
                         Text(badgeLabel)
                             .font(.system(size: 8, weight: .black, design: .rounded))
@@ -922,14 +943,12 @@ private struct ModernModRow: View {
                             .padding(.horizontal, 5).padding(.vertical, 1.5)
                             .background(LinearGradient(colors: [.white, Color(white: 0.85)], startPoint: .leading, endPoint: .trailing))
                             .clipShape(Capsule())
-                            .shadow(color: .white.opacity(0.5), radius: 3)
                     }
                 }
                 HStack(spacing: 4) {
                     Circle()
                         .fill(busy ? Color.yellow : (isOn ? Color.white : Color.white.opacity(0.3)))
                         .frame(width: 5, height: 5)
-                        .shadow(color: isOn ? .white : .clear, radius: 4)
                     Text(busy ? "Đang nạp..." : (isOn ? "Đang bật" : subtitleDisplay))
                         .font(.system(size: 10.5, weight: .medium))
                         .foregroundColor(busy ? .yellow : (isOn ? .white : .white.opacity(0.55)))
@@ -940,7 +959,7 @@ private struct ModernModRow: View {
             Button { iPhoneHaptics.shared.playTap(); showDetailSheet = true } label: {
                 Image(systemName: "info.circle.fill")
                     .font(.system(size: 17))
-                    .foregroundColor(.white.opacity(isOn ? 0.75 : 0.4))
+                    .foregroundColor(.white.opacity(isOn ? 0.8 : 0.4))
             }.buttonStyle(.plain)
             
             if busy {
@@ -952,27 +971,26 @@ private struct ModernModRow: View {
                     .scaleEffect(0.82)
                     .disabled(!hasLink && !isOn)
                     .onAppear { localToggle = isOn }
-                    .onChange(of: isOn) { v in localToggle = v }
+                    .onChange(of: isOn) { v in if localToggle != v { localToggle = v } }
                     .onChange(of: localToggle) { v in if v != isOn { handleToggle(v) } }
             }
         }
         .padding(.horizontal, 11).padding(.vertical, 10)
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(isOn ? Color.white.opacity(0.08) : Color.black.opacity(0.85))
+                .fill(isOn ? Color.white.opacity(0.11) : Color.black.opacity(0.78))
         )
         .overlay(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .strokeBorder(
                     isOn
-                        ? LinearGradient(colors: [.white, Color.white.opacity(0.65), .white], startPoint: .topLeading, endPoint: .bottomTrailing)
+                        ? LinearGradient(colors: [.white, Color.white.opacity(0.7), .white], startPoint: .topLeading, endPoint: .bottomTrailing)
                         : LinearGradient(colors: [Color.white.opacity(0.38), Color.white.opacity(0.14)], startPoint: .topLeading, endPoint: .bottomTrailing),
                     lineWidth: isOn ? 1.5 : 1.0
                 )
         )
-        .shadow(color: isOn ? .white.opacity(0.35) : .white.opacity(0.08), radius: isOn ? 9 : 4, y: 1)
         .opacity(hasLink ? 1 : 0.5)
-        .animation(.spring(response: 0.28, dampingFraction: 0.78), value: isOn)
+        .animation(.spring(response: 0.25, dampingFraction: 0.8), value: isOn)
         .onChange(of: isSessionActive) { a in if !a { showDetailSheet = false; showErrorAlert = false } }
         .sheet(isPresented: $showDetailSheet) { ModDetailSheet(item: item) }
         .alert("Lỗi kích hoạt Mod", isPresented: $showErrorAlert) { Button("OK", role: .cancel) { } } message: { Text(errorMessage) }
@@ -984,9 +1002,9 @@ private struct ModernModRow: View {
             guard isSessionActive else { localToggle = false; return }
             iPhoneHaptics.shared.playTickOn()
             withAnimation(.spring(response: 0.3, dampingFraction: 0.4)) { iconScale = 1.15 }
-            withAnimation(.easeOut(duration: 0.5)) { burst = true }
+            withAnimation(.easeOut(duration: 0.45)) { burst = true }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { withAnimation(.spring(response: 0.35, dampingFraction: 0.6)) { iconScale = 1.0 } }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { var tx = Transaction(); tx.disablesAnimations = true; withTransaction(tx) { burst = false } }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { var tx = Transaction(); tx.disablesAnimations = true; withTransaction(tx) { burst = false } }
             Task {
                 await store.setMultiEnabled(true, item: item)
                 if !authManager.isAuthorized || authManager.isInteractionLocked || store.catalog.resolvedMaintenanceEnabled { await store.setMultiEnabled(false, item: item); return }
@@ -1015,7 +1033,7 @@ struct ModDetailSheet: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                ModernBackground(urlString: authManager.publicBackgroundURL, particleCount: 18)
+                ModernBackground(urlString: authManager.publicBackgroundURL, particleCount: 14)
                 ScrollView {
                     VStack(spacing: 16) {
                         if let imgURL = item.imageURL, !imgURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -1023,7 +1041,6 @@ struct ModDetailSheet: View {
                                 .frame(maxWidth: .infinity).frame(height: 220)
                                 .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                                 .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Color.white.opacity(0.75), lineWidth: 1.2))
-                                .shadow(color: .white.opacity(0.3), radius: 12)
                         }
                         if let guide = item.usageGuide, !guide.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                             VStack(alignment: .leading, spacing: 12) {
@@ -1039,7 +1056,7 @@ struct ModDetailSheet: View {
                                             .font(.caption.bold())
                                             .foregroundColor(copied ? .black : .white)
                                             .padding(.horizontal, 10).padding(.vertical, 6)
-                                            .background(copied ? Color.white : Color.black.opacity(0.85))
+                                            .background(copied ? Color.white : Color.black.opacity(0.8))
                                             .clipShape(Capsule())
                                             .overlay(Capsule().strokeBorder(Color.white.opacity(0.7), lineWidth: 1))
                                     }.buttonStyle(.plain)
@@ -1047,7 +1064,7 @@ struct ModDetailSheet: View {
                                 Text(guide)
                                     .font(.body).foregroundColor(.white.opacity(0.92))
                                     .padding(13).frame(maxWidth: .infinity, alignment: .leading)
-                                    .background(Color.black.opacity(0.85))
+                                    .background(Color.black.opacity(0.8))
                                     .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
                                     .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous).strokeBorder(Color.white.opacity(0.45), lineWidth: 1))
                                 if isYouTubeLink {
@@ -1060,7 +1077,6 @@ struct ModDetailSheet: View {
                                             .frame(maxWidth: .infinity).padding(.vertical, 13)
                                             .background(LinearGradient(colors: [.white, Color(white: 0.86)], startPoint: .leading, endPoint: .trailing))
                                             .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
-                                            .shadow(color: .white.opacity(0.45), radius: 8)
                                     }.buttonStyle(.plain)
                                 }
                             }
