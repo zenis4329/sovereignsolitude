@@ -3,7 +3,7 @@ import UIKit
 import AudioToolbox
 
 // ==========================================================
-// MARK: - BACKGROUND (DÙNG SecureCatalogImage GIỐNG GameCatalogView)
+// MARK: - BACKGROUND (HIỂN THỊ RÕ ẢNH NỀN TRONG NAVIGATIONSTACK)
 // ==========================================================
 struct AppBackground: View {
     let urlString: String
@@ -13,20 +13,23 @@ struct AppBackground: View {
             ZStack {
                 Color.black
 
-                // ẢNH NỀN - DÙNG SecureCatalogImage (CHẮC CHẮN HIỆN)
-                SecureCatalogImage(
-                    urlString: urlString,
-                    placeholder: Image(systemName: "photo")
-                )
-                .frame(width: geo.size.width, height: geo.size.height)
-                .opacity(0.9)
+                if !urlString.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    SecureCatalogImage(
+                        urlString: urlString,
+                        placeholder: Image(systemName: "sparkles")
+                    )
+                    .id(urlString)
+                    .frame(width: geo.size.width, height: geo.size.height)
+                    .clipped()
+                    .opacity(0.68)
+                }
 
-                // Gradient nhẹ để chữ nổi — không đè chết ảnh
+                // Vignette tối nhẹ để nổi bật chữ & viền trắng neon nhưng vẫn rõ ảnh nền
                 LinearGradient(
                     colors: [
-                        Color.black.opacity(0.1),
-                        Color.black.opacity(0.35),
-                        Color.black.opacity(0.8)
+                        Color.black.opacity(0.32),
+                        Color.black.opacity(0.58),
+                        Color.black.opacity(0.88)
                     ],
                     startPoint: .top,
                     endPoint: .bottom
@@ -34,6 +37,7 @@ struct AppBackground: View {
             }
         }
         .ignoresSafeArea()
+        .allowsHitTesting(false)
     }
 }
 
@@ -41,19 +45,29 @@ struct AppBackground: View {
 // MARK: - STYLES (NEON WHITE - TỐI GIẢN, NHẸ GPU)
 // ==========================================================
 extension View {
-    /// Card đen + viền trắng neon (1 shadow nhẹ)
-    func neonCard(cornerRadius: CGFloat = 20) -> some View {
+    func neonCard(cornerRadius: CGFloat = 20, padding: CGFloat = 16) -> some View {
         self
-            .padding(18)
+            .padding(padding)
             .background(
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .fill(Color.black.opacity(0.72))
+                    .fill(Color.black.opacity(0.74))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .stroke(Color.white.opacity(0.9), lineWidth: 1.2)
-                    .shadow(color: .white.opacity(0.7), radius: 6)
+                    .strokeBorder(
+                        LinearGradient(
+                            colors: [
+                                Color.white.opacity(0.95),
+                                Color.white.opacity(0.32),
+                                Color.white.opacity(0.85)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        lineWidth: 1.2
+                    )
             )
+            .shadow(color: .white.opacity(0.18), radius: 8)
     }
 }
 
@@ -79,7 +93,7 @@ struct ContentView: View {
 
     var body: some View {
         ZStack(alignment: .bottom) {
-            AppBackground(urlString: authManager.publicBackgroundURL)
+            Color.black.ignoresSafeArea()
 
             Group {
                 if tabNavigation.selectedTab == AppSection.home.rawValue {
@@ -92,7 +106,7 @@ struct ContentView: View {
 
             if !isTabBarHidden {
                 floatingTabBar
-                    .padding(.bottom, 25)
+                    .padding(.bottom, 22)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                     .zIndex(10)
             }
@@ -101,22 +115,28 @@ struct ContentView: View {
         .imageScale(.small)
     }
 
-    // MARK: TAB BAR (ĐEN + VIỀN TRẮNG NEON)
+    // MARK: TAB BAR (ĐEN TUYỀN + VIỀN TRẮNG NEON)
     private var floatingTabBar: some View {
         HStack(spacing: 6) {
             tabButton(icon: "house.fill", title: "Trang chủ", tag: AppSection.home.rawValue)
             tabButton(icon: "lock.shield.fill", title: "Chức năng", tag: AppSection.games.rawValue)
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 8)
+        .padding(7)
         .background(
             Capsule()
-                .fill(Color.black.opacity(0.88))
+                .fill(Color.black.opacity(0.9))
                 .overlay(
                     Capsule()
-                        .stroke(Color.white.opacity(0.9), lineWidth: 1.2)
-                        .shadow(color: .white.opacity(0.7), radius: 8)
+                        .strokeBorder(
+                            LinearGradient(
+                                colors: [.white, Color.white.opacity(0.4), .white],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            ),
+                            lineWidth: 1.2
+                        )
                 )
+                .shadow(color: .white.opacity(0.28), radius: 10)
         )
     }
 
@@ -124,24 +144,24 @@ struct ContentView: View {
         let isSelected = tabNavigation.selectedTab == tag
 
         return Button {
-            withAnimation(.spring(response: 0.4, dampingFraction: 0.75)) {
+            withAnimation(.spring(response: 0.36, dampingFraction: 0.78)) {
                 tabNavigation.select(tag)
             }
             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         } label: {
-            HStack(spacing: 6) {
+            HStack(spacing: 7) {
                 Image(systemName: icon)
-                    .font(.system(size: 17, weight: isSelected ? .semibold : .medium))
+                    .font(.system(size: 16, weight: isSelected ? .bold : .medium))
 
                 if isSelected {
                     Text(title)
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(.system(size: 13.5, weight: .bold, design: .rounded))
                         .lineLimit(1)
                 }
             }
-            .foregroundColor(isSelected ? .black : .white.opacity(0.55))
-            .padding(.horizontal, isSelected ? 22 : 16)
-            .padding(.vertical, 12)
+            .foregroundColor(isSelected ? .black : .white.opacity(0.6))
+            .padding(.horizontal, isSelected ? 20 : 16)
+            .padding(.vertical, 11)
             .background(
                 ZStack {
                     if isSelected {
@@ -157,7 +177,7 @@ struct ContentView: View {
 }
 
 // ==========================================================
-// MARK: - DASHBOARD
+// MARK: - DASHBOARD (BỐ CỤC BENTO MỚI)
 // ==========================================================
 private struct DashboardView: View {
     @Environment(\.appLanguage) private var language
@@ -176,174 +196,253 @@ private struct DashboardView: View {
         return formatter
     }()
 
+    private var maskedKeyPreview: String {
+        let raw = authManager.savedKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard raw.count > 6 else { return raw.isEmpty ? "CHƯA KÍCH HOẠT" : raw }
+        return "\(raw.prefix(4)) •••• \(raw.suffix(4))"
+    }
+
     var body: some View {
         NavigationStack {
-            ScrollView(showsIndicators: false) {
-                VStack(spacing: 18) {
-                    heroSection
-                    licenseCard
+            ZStack {
+                // Đặt AppBackground trực tiếp bên trong NavigationStack để không bị che
+                AppBackground(urlString: authManager.publicBackgroundURL)
 
-                    HStack(alignment: .top, spacing: 12) {
-                        deviceCard.frame(maxWidth: .infinity)
-                        socialGrid.frame(maxWidth: .infinity)
-                    }
+                ScrollView(showsIndicators: false) {
+                    VStack(spacing: 14) {
+                        topHeaderBar
+                        heroProfileCard
+                        licenseCard
+                        deviceTelemetryRow
+                        socialLinksSection
 
-                    Spacer().frame(height: 110)
-                }
-                .padding(.horizontal, 16)
-                .padding(.top, 10)
-            }
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button { showSettings = true } label: {
-                        Image(systemName: "gearshape.fill")
-                            .font(.system(size: 18, weight: .semibold))
-                            .foregroundColor(.white)
-                            .shadow(color: .white.opacity(0.8), radius: 5)
+                        Spacer().frame(height: 105)
                     }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
                 }
             }
+            .toolbar(.hidden, for: .navigationBar)
             .sheet(isPresented: $showSettings) {
                 SettingsView().environmentObject(appState)
             }
         }
     }
 
-    // MARK: 1. HERO — AVATAR NEON TRẮNG (TĨNH, NHẸ)
-    private var heroSection: some View {
-        VStack(spacing: 14) {
-            ZStack {
-                // Glow tĩnh 1 lớp
+    // MARK: 1. TOP HEADER BAR
+    private var topHeaderBar: some View {
+        HStack {
+            HStack(spacing: 7) {
                 Circle()
-                    .fill(Color.white.opacity(0.18))
-                    .frame(width: 118, height: 118)
-                    .blur(radius: 18)
-
-                // Viền trắng neon 1 shadow
-                Circle()
-                    .stroke(Color.white.opacity(0.9), lineWidth: 2)
-                    .frame(width: 106, height: 106)
-                    .shadow(color: .white.opacity(0.8), radius: 8)
-
-                // Viền ngoài mờ
-                Circle()
-                    .stroke(Color.white.opacity(0.2), lineWidth: 1)
-                    .frame(width: 118, height: 118)
-
-                // Avatar
-                CachedRemoteImage(url: catalogStore.catalog.brandAvatarURL.flatMap(URL.init(string:))) {
-                    AppLogo(size: 90)
-                }
-                .scaledToFill()
-                .frame(width: 90, height: 90)
-                .clipShape(Circle())
-                .overlay(
-                    Circle()
-                        .stroke(Color.white.opacity(0.5), lineWidth: 1)
-                        .shadow(color: .white.opacity(0.6), radius: 4)
-                )
+                    .fill(Color.white)
+                    .frame(width: 6, height: 6)
+                    .shadow(color: .white, radius: 4)
+                Text("SYSTEM DASHBOARD")
+                    .font(.system(size: 10.5, weight: .black, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.85))
+                    .tracking(1.6)
             }
-            .frame(height: 140)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 7)
+            .background(Capsule().fill(Color.black.opacity(0.75)))
+            .overlay(Capsule().strokeBorder(Color.white.opacity(0.45), lineWidth: 1))
 
-            VStack(spacing: 6) {
-                Text(catalogStore.catalog.brandTitle ?? "Sovereign Solitude")
-                    .font(.system(size: 26, weight: .bold, design: .serif))
-                    .tracking(1.5)
+            Spacer()
+
+            Button {
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                showSettings = true
+            } label: {
+                Image(systemName: "gearshape.fill")
+                    .font(.system(size: 16, weight: .semibold))
                     .foregroundColor(.white)
-                    .shadow(color: .white.opacity(0.7), radius: 6)
-
-                HStack(spacing: 6) {
-                    Circle()
-                        .fill(Color.white)
-                        .frame(width: 5, height: 5)
-                        .shadow(color: .white, radius: 3)
-                    Text(catalogStore.catalog.brandSubtitle ?? language.text("dashboard.tagline"))
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(.white.opacity(0.75))
-                        .tracking(1.2)
-                }
+                    .frame(width: 38, height: 38)
+                    .background(Circle().fill(Color.black.opacity(0.78)))
+                    .overlay(Circle().strokeBorder(Color.white.opacity(0.85), lineWidth: 1.1))
+                    .shadow(color: .white.opacity(0.25), radius: 6)
             }
+            .buttonStyle(ClassicScaleButtonStyle())
         }
-        .padding(.top, 10)
     }
 
-    // MARK: 2. LICENSE CARD
+    // MARK: 2. HERO PROFILE CARD (BỐ CỤC NGANG GỌN ĐẸP)
+    private var heroProfileCard: some View {
+        HStack(spacing: 15) {
+            ZStack {
+                Circle()
+                    .fill(
+                        RadialGradient(
+                            colors: [Color.white.opacity(0.28), Color.clear],
+                            center: .center,
+                            startRadius: 24,
+                            endRadius: 46
+                        )
+                    )
+                    .frame(width: 88, height: 88)
+
+                Circle()
+                    .stroke(Color.white.opacity(0.9), lineWidth: 1.8)
+                    .frame(width: 78, height: 78)
+                    .shadow(color: .white.opacity(0.6), radius: 6)
+
+                CachedRemoteImage(url: catalogStore.catalog.brandAvatarURL.flatMap(URL.init(string:))) {
+                    AppLogo(size: 68)
+                }
+                .scaledToFill()
+                .frame(width: 68, height: 68)
+                .clipShape(Circle())
+                .overlay(Circle().stroke(Color.white.opacity(0.45), lineWidth: 1))
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text(catalogStore.catalog.brandTitle ?? "Sovereign Solitude")
+                    .font(.system(size: 21, weight: .black, design: .rounded))
+                    .foregroundColor(.white)
+                    .lineLimit(1)
+                    .shadow(color: .white.opacity(0.45), radius: 5)
+
+                Text(catalogStore.catalog.brandSubtitle ?? language.text("dashboard.tagline"))
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(.white.opacity(0.72))
+                    .lineLimit(1)
+
+                HStack(spacing: 6) {
+                    badgePill(icon: "checkmark.seal.fill", text: "PREMIUM")
+                    badgePill(icon: "bolt.fill", text: "120FPS")
+                }
+                .padding(.top, 2)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .neonCard(cornerRadius: 22, padding: 16)
+    }
+
+    private func badgePill(icon: String, text: String) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: icon)
+                .font(.system(size: 8.5, weight: .bold))
+            Text(text)
+                .font(.system(size: 9, weight: .black, design: .monospaced))
+                .tracking(0.8)
+        }
+        .foregroundColor(.white)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 3.5)
+        .background(Color.white.opacity(0.12))
+        .clipShape(Capsule())
+        .overlay(Capsule().strokeBorder(Color.white.opacity(0.55), lineWidth: 0.8))
+    }
+
+    // MARK: 3. LICENSE & KEY CARD
     private var licenseCard: some View {
         TimelineView(.periodic(from: .now, by: 1.0)) { context in
             let remainingTime = calculateRemainingTime(from: authManager.expireDate, currentDate: context.date)
+            let isExpired = remainingTime == "Hết Hạn"
 
             VStack(spacing: 14) {
-                HStack(spacing: 8) {
-                    Image(systemName: "hourglass")
-                        .font(.system(size: 11, weight: .bold))
-                        .foregroundColor(.white.opacity(0.7))
-                    Text("LICENSE")
-                        .font(.system(size: 10, weight: .black, design: .monospaced))
-                        .foregroundColor(.white.opacity(0.6))
-                        .tracking(2)
+                // Header
+                HStack {
+                    HStack(spacing: 6) {
+                        Image(systemName: "key.fill")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundColor(.white)
+                        Text("THỜI HẠN LICENSE")
+                            .font(.system(size: 10.5, weight: .black, design: .monospaced))
+                            .foregroundColor(.white.opacity(0.75))
+                            .tracking(1.4)
+                    }
+
                     Spacer()
-                    if remainingTime != "Hết Hạn" {
-                        HStack(spacing: 5) {
-                            Circle().fill(Color.white).frame(width: 5, height: 5)
-                            Text("ACTIVE")
-                                .font(.system(size: 9, weight: .bold, design: .monospaced))
-                                .foregroundColor(.white)
-                                .tracking(1)
-                        }
-                    } else {
-                        Text("EXPIRED")
-                            .font(.system(size: 9, weight: .bold, design: .monospaced))
-                            .foregroundColor(.red)
+
+                    HStack(spacing: 5) {
+                        Circle()
+                            .fill(isExpired ? Color.red : Color.green)
+                            .frame(width: 6, height: 6)
+                            .shadow(color: isExpired ? .red : .green, radius: 4)
+                        Text(isExpired ? "EXPIRED" : "ACTIVE")
+                            .font(.system(size: 9.5, weight: .black, design: .monospaced))
+                            .foregroundColor(isExpired ? .red : .white)
                             .tracking(1)
                     }
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 4)
+                    .background(Color.white.opacity(0.08))
+                    .clipShape(Capsule())
+                    .overlay(Capsule().strokeBorder(isExpired ? Color.red.opacity(0.7) : Color.white.opacity(0.6), lineWidth: 0.9))
                 }
 
-                HStack(alignment: .bottom) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Thời gian còn lại")
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundColor(.white.opacity(0.45))
+                // Đồng hồ đếm ngược lớn
+                HStack {
+                    VStack(alignment: .leading, spacing: 3) {
                         Text(remainingTime)
-                            .font(.system(size: 24, weight: .black, design: .monospaced))
-                            .foregroundColor(remainingTime == "Hết Hạn" ? .red : .white)
-                            .shadow(color: remainingTime == "Hết Hạn" ? .red.opacity(0.7) : .white.opacity(0.5), radius: 4)
-                    }
+                            .font(.system(size: 28, weight: .black, design: .monospaced))
+                            .foregroundColor(isExpired ? .red : .white)
+                            .shadow(color: isExpired ? .red.opacity(0.6) : .white.opacity(0.45), radius: 6)
 
+                        if !authManager.expireDate.isEmpty {
+                            Text("Hết hạn: \(authManager.expireDate)")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundColor(.white.opacity(0.5))
+                        }
+                    }
                     Spacer()
+                }
+
+                Divider().background(Color.white.opacity(0.18))
+
+                // Thanh Key + Nút Copy
+                HStack(spacing: 10) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "lock.fill")
+                            .font(.system(size: 11))
+                            .foregroundColor(.white.opacity(0.55))
+                        Text(maskedKeyPreview)
+                            .font(.system(size: 12, weight: .bold, design: .monospaced))
+                            .foregroundColor(.white.opacity(0.88))
+                            .lineLimit(1)
+                    }
+                    .padding(.horizontal, 12)
+                    .frame(height: 38)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.white.opacity(0.06))
+                    .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 11, style: .continuous)
+                            .strokeBorder(Color.white.opacity(0.25), lineWidth: 0.9)
+                    )
 
                     Button {
                         UIPasteboard.general.string = authManager.savedKey
-                        withAnimation { licenseKeyCopied = true }
+                        withAnimation(.spring(response: 0.25, dampingFraction: 0.75)) { licenseKeyCopied = true }
                         AudioServicesPlaySystemSound(1104)
                         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
                             withAnimation { licenseKeyCopied = false }
                         }
                     } label: {
-                        VStack(spacing: 4) {
-                            Image(systemName: licenseKeyCopied ? "checkmark" : "doc.on.doc")
-                                .font(.system(size: 16, weight: .semibold))
-                            Text(licenseKeyCopied ? "Đã chép" : "Copy")
-                                .font(.system(size: 9, weight: .bold))
-                                .tracking(0.5)
+                        HStack(spacing: 5) {
+                            Image(systemName: licenseKeyCopied ? "checkmark" : "doc.on.doc.fill")
+                                .font(.system(size: 12, weight: .bold))
+                            Text(licenseKeyCopied ? "Đã chép" : "Copy Key")
+                                .font(.system(size: 12, weight: .bold, design: .rounded))
                         }
                         .foregroundColor(licenseKeyCopied ? .black : .white)
-                        .frame(width: 56, height: 56)
+                        .padding(.horizontal, 14)
+                        .frame(height: 38)
                         .background(
-                            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                .fill(licenseKeyCopied ? Color.white : Color.black.opacity(0.6))
+                            RoundedRectangle(cornerRadius: 11, style: .continuous)
+                                .fill(licenseKeyCopied ? Color.white : Color.black.opacity(0.8))
                         )
                         .overlay(
-                            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                .stroke(Color.white.opacity(0.9), lineWidth: 1.2)
-                                .shadow(color: .white.opacity(0.7), radius: 5)
+                            RoundedRectangle(cornerRadius: 11, style: .continuous)
+                                .strokeBorder(Color.white.opacity(0.9), lineWidth: 1.1)
                         )
                     }
                     .buttonStyle(ClassicScaleButtonStyle())
                 }
             }
-            .neonCard()
+            .neonCard(cornerRadius: 22, padding: 16)
         }
     }
 
@@ -354,89 +453,102 @@ private struct DashboardView: View {
         let days = diff / 86400
         let hrs = (diff % 86400) / 3600
         let mins = (diff % 3600) / 60
+        let secs = diff % 60
         return days > 0
-            ? "\(days)N \(hrs)H"
-            : String(format: "%02d:%02d:%02d", hrs, mins, diff % 60)
+            ? String(format: "%dN %02dH %02dM", days, hrs, mins)
+            : String(format: "%02d:%02d:%02d", hrs, mins, secs)
     }
 
-    // MARK: 3. DEVICE CARD
-    private var deviceCard: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 8) {
-                Image(systemName: "iphone")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(.white)
-                Text("THIẾT BỊ")
-                    .font(.system(size: 11, weight: .black, design: .monospaced))
-                    .foregroundColor(.white.opacity(0.85))
-                    .tracking(1.5)
-            }
-
-            VStack(alignment: .leading, spacing: 12) {
-                deviceRow(label: "Máy", value: AppInfo.hardwareDisplayName)
-                Divider().background(Color.white.opacity(0.15))
-                deviceRow(label: "iOS", value: AppInfo.osVersion)
-                Divider().background(Color.white.opacity(0.15))
-                deviceRow(
-                    label: "Hỗ trợ",
-                    value: appState.isSupported ? "Có" : "Không",
-                    valueColor: appState.isSupported ? .white : .red
-                )
-            }
+    // MARK: 4. DEVICE TELEMETRY ROW (3 CỘT CÂN ĐỐI)
+    private var deviceTelemetryRow: some View {
+        HStack(spacing: 10) {
+            telemetryTile(
+                icon: "iphone",
+                label: "THIẾT BỊ",
+                value: AppInfo.hardwareDisplayName,
+                valueColor: .white
+            )
+            telemetryTile(
+                icon: "cpu",
+                label: "PHIÊN BẢN",
+                value: "iOS \(AppInfo.osVersion)",
+                valueColor: .white
+            )
+            telemetryTile(
+                icon: appState.isSupported ? "checkmark.shield.fill" : "xmark.shield.fill",
+                label: "HỖ TRỢ",
+                value: appState.isSupported ? "Tương thích" : "Không",
+                valueColor: appState.isSupported ? .white : .red
+            )
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .neonCard()
     }
 
-    private func deviceRow(label: String, value: String, valueColor: Color = .white) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(label)
-                .font(.system(size: 9.5, weight: .medium))
-                .foregroundColor(.white.opacity(0.4))
-                .tracking(0.5)
+    private func telemetryTile(icon: String, label: String, value: String, valueColor: Color) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Image(systemName: icon)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundColor(valueColor)
+
             Text(value)
-                .font(.system(size: 13, weight: .bold))
+                .font(.system(size: 12.5, weight: .bold, design: .rounded))
                 .foregroundColor(valueColor)
                 .lineLimit(1)
+                .minimumScaleFactor(0.8)
+
+            Text(label)
+                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                .foregroundColor(.white.opacity(0.45))
+                .tracking(0.8)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .neonCard(cornerRadius: 18, padding: 13)
     }
 
-    // MARK: 4. SOCIAL GRID
-    private var socialGrid: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 8) {
-                Image(systemName: "link")
-                    .font(.system(size: 12, weight: .semibold))
+    // MARK: 5. SOCIAL & COMMUNITY LINKS
+    private var socialLinksSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 7) {
+                Image(systemName: "paperplane.fill")
+                    .font(.system(size: 11.5, weight: .bold))
                     .foregroundColor(.white)
-                Text("LIÊN KẾT")
-                    .font(.system(size: 11, weight: .black, design: .monospaced))
-                    .foregroundColor(.white.opacity(0.85))
-                    .tracking(1.5)
+                Text("CỘNG ĐỒNG & HỖ TRỢ")
+                    .font(.system(size: 10.5, weight: .black, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.8))
+                    .tracking(1.4)
             }
 
-            VStack(spacing: 8) {
-                ForEach(catalogStore.catalog.resolvedSocialLinks.prefix(3), id: \.url) { link in
+            VStack(spacing: 9) {
+                ForEach(catalogStore.catalog.resolvedSocialLinks.prefix(4), id: \.url) { link in
                     Button {
                         if let url = URL(string: link.url) { UIApplication.shared.open(url) }
                         UIImpactFeedbackGenerator(style: .light).impactOccurred()
                     } label: {
-                        HStack(spacing: 8) {
-                            Image(systemName: "arrow.up.right")
-                                .font(.system(size: 10, weight: .bold))
-                                .foregroundColor(.white.opacity(0.7))
+                        HStack(spacing: 12) {
+                            Image(systemName: "globe")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundColor(.black)
+                                .frame(width: 30, height: 30)
+                                .background(Color.white)
+                                .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+
                             Text(link.name)
-                                .font(.system(size: 12, weight: .semibold))
-                                .foregroundColor(.white.opacity(0.95))
+                                .font(.system(size: 13.5, weight: .bold, design: .rounded))
+                                .foregroundColor(.white)
                                 .lineLimit(1)
+
                             Spacer()
+
+                            Image(systemName: "arrow.up.right")
+                                .font(.system(size: 12, weight: .black))
+                                .foregroundColor(.white.opacity(0.85))
                         }
-                        .padding(.horizontal, 10)
+                        .padding(.horizontal, 12)
                         .padding(.vertical, 10)
-                        .background(Color.black.opacity(0.5))
-                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .background(Color.white.opacity(0.06))
+                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                         .overlay(
-                            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                .stroke(Color.white.opacity(0.7), lineWidth: 1)
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .strokeBorder(Color.white.opacity(0.55), lineWidth: 1)
                         )
                     }
                     .buttonStyle(ClassicScaleButtonStyle())
@@ -444,7 +556,7 @@ private struct DashboardView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .neonCard()
+        .neonCard(cornerRadius: 22, padding: 16)
     }
 }
 
@@ -466,66 +578,62 @@ struct NoticeBannerView: View {
 
     var body: some View {
         ZStack {
-            Color.black.opacity(0.92).ignoresSafeArea()
+            Color.black.opacity(0.88).ignoresSafeArea()
 
-            VStack(spacing: 20) {
-                VStack(spacing: 14) {
+            VStack(spacing: 18) {
+                VStack(spacing: 12) {
                     ZStack {
                         Circle()
-                            .fill(Color.white.opacity(0.2))
-                            .frame(width: 100, height: 100)
-                            .blur(radius: 18)
-
-                        Circle()
-                            .stroke(Color.white.opacity(0.9), lineWidth: 2)
-                            .frame(width: 88, height: 88)
-                            .shadow(color: .white.opacity(0.8), radius: 8)
+                            .stroke(Color.white.opacity(0.95), lineWidth: 2)
+                            .frame(width: 84, height: 84)
+                            .shadow(color: .white.opacity(0.75), radius: 8)
 
                         SecureRemoteImage(
                             urlString: authManager.publicAvatarURL,
                             placeholder: Image(systemName: "person.crop.circle.fill")
                         )
-                        .frame(width: 76, height: 76)
+                        .frame(width: 74, height: 74)
                         .clipShape(Circle())
-                        .overlay(Circle().stroke(Color.white.opacity(0.5), lineWidth: 1))
                     }
 
-                    Text("Sovereign Solitude")
-                        .font(.system(size: 22, weight: .bold, design: .serif))
+                    Text(store.catalog.brandTitle ?? "Sovereign Solitude")
+                        .font(.system(size: 21, weight: .black, design: .rounded))
                         .foregroundColor(.white)
-                        .tracking(1.5)
-                        .shadow(color: .white.opacity(0.7), radius: 6)
+                        .shadow(color: .white.opacity(0.55), radius: 5)
 
                     HStack(spacing: 6) {
                         Circle()
                             .fill(Color.white)
                             .frame(width: 5, height: 5)
-                            .shadow(color: .white, radius: 3)
-                        Text("THÔNG BÁO")
-                            .font(.system(size: 10, weight: .bold, design: .monospaced))
-                            .foregroundColor(.white.opacity(0.7))
-                            .tracking(2)
+                        Text("THÔNG BÁO HỆ THỐNG")
+                            .font(.system(size: 9.5, weight: .black, design: .monospaced))
+                            .foregroundColor(.white.opacity(0.75))
+                            .tracking(1.8)
                     }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background(Capsule().fill(Color.white.opacity(0.08)))
+                    .overlay(Capsule().strokeBorder(Color.white.opacity(0.45), lineWidth: 0.8))
                 }
-                .padding(.top, 10)
+                .padding(.top, 4)
 
                 ScrollView(.vertical, showsIndicators: false) {
                     Text(noticeMessage)
                         .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(.white.opacity(0.9))
+                        .foregroundColor(.white.opacity(0.92))
                         .multilineTextAlignment(.center)
                         .lineSpacing(5)
-                        .padding(.horizontal, 8)
+                        .padding(.horizontal, 6)
                         .frame(maxWidth: .infinity)
                 }
                 .frame(maxHeight: 150)
-                .padding(16)
+                .padding(15)
                 .background(
-                    RoundedRectangle(cornerRadius: 14)
-                        .fill(Color.black.opacity(0.6))
+                    RoundedRectangle(cornerRadius: 15, style: .continuous)
+                        .fill(Color.white.opacity(0.05))
                         .overlay(
-                            RoundedRectangle(cornerRadius: 14)
-                                .stroke(Color.white.opacity(0.3), lineWidth: 1)
+                            RoundedRectangle(cornerRadius: 15, style: .continuous)
+                                .strokeBorder(Color.white.opacity(0.35), lineWidth: 1)
                         )
                 )
 
@@ -534,15 +642,17 @@ struct NoticeBannerView: View {
                         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                         onDismiss()
                     } label: {
-                        Text("OK")
-                            .font(.system(size: 15, weight: .bold))
+                        Text("ĐÃ HIỂU")
+                            .font(.system(size: 14.5, weight: .black, design: .rounded))
                             .tracking(1)
                             .foregroundColor(.black)
                             .frame(maxWidth: .infinity)
-                            .frame(height: 50)
+                            .frame(height: 48)
                             .background(Color.white)
                             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                            .shadow(color: .white.opacity(0.45), radius: 8)
                     }
+                    .buttonStyle(ClassicScaleButtonStyle())
 
                     Button {
                         UIImpactFeedbackGenerator(style: .light).impactOccurred()
@@ -551,39 +661,46 @@ struct NoticeBannerView: View {
                         HStack(spacing: 6) {
                             Image(systemName: "clock.arrow.circlepath")
                                 .font(.system(size: 12, weight: .semibold))
-                            Text("ẨN 1 GIỜ")
-                                .font(.system(size: 13, weight: .bold))
-                                .tracking(1)
+                            Text("ẨN TRONG 1 GIỜ")
+                                .font(.system(size: 12.5, weight: .bold, design: .rounded))
+                                .tracking(0.8)
                         }
                         .foregroundColor(.white.opacity(0.85))
                         .frame(maxWidth: .infinity)
-                        .frame(height: 48)
-                        .background(Color.black.opacity(0.5))
+                        .frame(height: 44)
+                        .background(Color.black.opacity(0.75))
                         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                         .overlay(
                             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                .stroke(Color.white.opacity(0.6), lineWidth: 1)
+                                .strokeBorder(Color.white.opacity(0.65), lineWidth: 1)
                         )
                     }
+                    .buttonStyle(ClassicScaleButtonStyle())
                 }
-                .padding(.bottom, 6)
             }
-            .padding(24)
+            .padding(22)
             .background(
                 RoundedRectangle(cornerRadius: 26, style: .continuous)
-                    .fill(Color.black.opacity(0.95))
+                    .fill(Color.black.opacity(0.94))
                     .overlay(
                         RoundedRectangle(cornerRadius: 26, style: .continuous)
-                            .stroke(Color.white.opacity(0.9), lineWidth: 1.3)
-                            .shadow(color: .white.opacity(0.7), radius: 10)
+                            .strokeBorder(
+                                LinearGradient(
+                                    colors: [.white, Color.white.opacity(0.35), .white],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                ),
+                                lineWidth: 1.3
+                            )
                     )
+                    .shadow(color: .white.opacity(0.32), radius: 14)
             )
             .padding(.horizontal, 24)
-            .scaleEffect(showContent ? 1 : 0.85)
+            .scaleEffect(showContent ? 1 : 0.88)
             .opacity(showContent ? 1 : 0)
         }
         .onAppear {
-            withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+            withAnimation(.spring(response: 0.36, dampingFraction: 0.8)) {
                 showContent = true
             }
         }
