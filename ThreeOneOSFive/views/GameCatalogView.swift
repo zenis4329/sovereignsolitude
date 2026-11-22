@@ -1,186 +1,7 @@
 import SwiftUI
 import UIKit
 import AudioToolbox
-import Darwin
 import Combine
-
-// ==========================================================
-// MARK: - 🛡️ SECURITY GUARD (CHỐNG JAILBREAK / DEBUG / CRACK / BUG)
-// ==========================================================
-final class SecurityGuard: ObservableObject {
-    static let shared = SecurityGuard()
-
-    @Published private(set) var compromised: Bool = false
-    @Published private(set) var compromiseReason: String?
-
-    // Rate limiter (chống spam toggle = exploit/bug)
-    private var lastItemActions: [String: Date] = [:]
-    private var lastGlobalActions: [Date] = []
-    private let itemCooldown: TimeInterval = 0.40
-    private let globalWindow: TimeInterval = 3.0
-    private let globalMax: Int = 20
-
-    // Launch cooldown
-    private var launchGuard: Date = .distantPast
-    private let launchCooldown: TimeInterval = 1.5
-
-    private let sessionNonce = UUID().uuidString
-
-    private init() {}
-
-    // ---------- Khởi động: quét toàn bộ ----------
-    func bootstrap() {
-        var reasons: [String] = []
-        if isJailbroken()    { reasons.append("Jailbreak") }
-        if isDebugged()      { reasons.append("Debugger") }
-        if hasInjection()    { reasons.append("Dylib Injection") }
-        if isFridaPortOpen() { reasons.append("Frida Server") }
-
-        if reasons.isEmpty {
-            compromised = false
-            compromiseReason = nil
-        } else {
-            compromised = true
-            compromiseReason = reasons.joined(separator: " · ")
-        }
-    }
-
-    // ---------- Kiểm tra trước thao tác quan trọng ----------
-    func canPerformCriticalAction() -> Bool {
-        if compromised { return false }
-        if isDebugged() || hasInjection() {
-            compromised = true
-            compromiseReason = "Tamper detected"
-            return false
-        }
-        return true
-    }
-
-    // ---------- Rate limit chống bug/spam ----------
-    func throttleToggle(for key: String) -> Bool {
-        let now = Date()
-        if let last = lastItemActions[key], now.timeIntervalSince(last) < itemCooldown {
-            return false
-        }
-        lastGlobalActions.removeAll { now.timeIntervalSince($0) > globalWindow }
-        if lastGlobalActions.count >= globalMax { return false }
-        lastItemActions[key] = now
-        lastGlobalActions.append(now)
-        return true
-    }
-
-    // ---------- Chống double-launch ----------
-    func canLaunch() -> Bool {
-        let now = Date()
-        if now.timeIntervalSince(launchGuard) < launchCooldown { return false }
-        launchGuard = now
-        return true
-    }
-
-    func currentNonce() -> String { sessionNonce }
-
-    // ==========================================================
-    // CORE CHECKS
-    // ==========================================================
-    private func isJailbroken() -> Bool {
-        let paths = [
-            "/Applications/Cydia.app",
-            "/Library/MobileSubstrate/MobileSubstrate.dylib",
-            "/bin/bash", "/usr/sbin/sshd", "/etc/apt",
-            "/private/var/lib/apt/", "/usr/bin/ssh",
-            "/private/var/lib/cydia", "/var/cache/apt",
-            "/var/lib/cydia", "/usr/libexec/sftp-server",
-            "/Applications/FakeCarrier.app",
-            "/Applications/SBSettings.app",
-            "/Applications/WinterBoard.app",
-            "/Applications/blackra1n.app",
-            "/Applications/IntelliScreen.app",
-            "/Applications/Snoop-itConfig.app",
-            "/var/jb", "/var/jb/usr/bin/ssh"
-        ]
-        for p in paths where FileManager.default.fileExists(atPath: p) { return true }
-        // Thử ghi ngoài sandbox
-        let test = "/private/jb_\(UUID().uuidString).txt"
-        do {
-            try "x".write(toFile: test, atomically: true, encoding: .utf8)
-            try? FileManager.default.removeItem(atPath: test)
-            return true
-        } catch { return false }
-    }
-
-    private func isDebugged() -> Bool {
-        var info = kinfo_proc()
-        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, getpid()]
-        var size = MemoryLayout<kinfo_proc>.stride
-        let result = sysctl(&mib, u_int(mib.count), &info, &size, nil, 0)
-        if result != 0 { return false }
-        return (info.kp_proc.p_flag & P_TRACED) != 0
-    }
-
-    /// Phát hiện inject dylib (Frida, Substrate, Substitute, Cycript, libhooker...)
-    /// Dùng PUBLIC API: dlsym + Bundle.allFrameworks + env var
-    private func hasInjection() -> Bool {
-        // 1. Environment injection
-        let env = ProcessInfo.processInfo.environment
-        let suspiciousEnv = ["DYLD_INSERT_LIBRARIES", "DYLD_FRAMEWORK_PATH", "DYLD_LIBRARY_PATH"]
-        for key in suspiciousEnv {
-            if let v = env[key], !v.isEmpty { return true }
-        }
-
-        // 2. Quét symbol của các framework hook qua dlsym (public API)
-        let rtldDefault = UnsafeMutableRawPointer(bitPattern: -2)
-        let badSymbols: [String] = [
-            "MSHookFunction", "MSHookMessageEx", "MSFindSymbol",
-            "MSGetImageByName", "MSLog",
-            "SubstituteHookFunction", "SubstituteFindImageByName",
-            "SubstituteInterface",
-            "frida_agent_main", "FRIDA_AGENT_ENTRY",
-            "gum_init_embedded", "gum_module_find_export_by_name",
-            "cycript_init", "CYListenServer",
-            "libhooker_init", "hook_function",
-            "FLEXManager", "TweakInjectInit"
-        ]
-        for sym in badSymbols {
-            if dlsym(rtldDefault, sym) != nil { return true }
-        }
-
-        // 3. Quét bundle lạ nạp runtime
-        let allowedPrefixes = ["/System/", "/usr/lib/", "/private/preboot/", Bundle.main.bundlePath]
-        let badKeywords = ["substitute", "substrate", "frida", "cycript",
-                           "libhooker", "tweakinject", "flexloader", "choicy",
-                           "reveal", "cydia"]
-        for bundle in Bundle.allFrameworks + Bundle.allBundles {
-            let path = bundle.bundlePath
-            let isAllowed = allowedPrefixes.contains(where: { path.hasPrefix($0) })
-            if !isAllowed {
-                let low = path.lowercased()
-                for kw in badKeywords where low.contains(kw) { return true }
-            }
-        }
-
-        return false
-    }
-
-    /// Chống Frida gắn qua cổng 27042 (mặc định Frida server)
-    private func isFridaPortOpen() -> Bool {
-        let port: UInt16 = 27042
-        let sock = socket(AF_INET, SOCK_STREAM, 0)
-        guard sock >= 0 else { return false }
-        defer { close(sock) }
-
-        var addr = sockaddr_in()
-        addr.sin_family = sa_family_t(AF_INET)
-        addr.sin_port = port.bigEndian
-        addr.sin_addr.s_addr = inet_addr("127.0.0.1")
-
-        let result = withUnsafePointer(to: &addr) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                connect(sock, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
-            }
-        }
-        return result == 0
-    }
-}
 
 // ==========================================================
 // MARK: - 🔊 HAPTICS + ÂM THANH
@@ -267,7 +88,132 @@ struct SecureCatalogImage: View {
 }
 
 // ==========================================================
-// MARK: - BACKGROUND (MƯA HẠT + ORB PHÁT SÁNG)
+// MARK: - 🌌 AURORA WAVES (sóng cực quang nền)
+// ==========================================================
+struct AuroraWaves: View {
+    var body: some View {
+        TimelineView(.animation) { timeline in
+            let t = timeline.date.timeIntervalSinceReferenceDate
+            Canvas { ctx, size in
+                let colors: [Color] = [
+                    Color(red: 0.2, green: 0.85, blue: 1.0),
+                    Color(red: 0.6, green: 0.3, blue: 1.0),
+                    Color(red: 0.2, green: 0.55, blue: 1.0)
+                ]
+                for i in 0..<3 {
+                    var path = Path()
+                    let phase = Double(i) * 2.2
+                    let amplitude = size.height * 0.09
+                    let yBase = size.height * (0.35 + Double(i) * 0.18)
+                    path.move(to: CGPoint(x: 0, y: yBase))
+                    for x in stride(from: 0, through: size.width, by: 6) {
+                        let y = yBase
+                            + sin((Double(x) / 120) + t * 0.55 + phase) * amplitude
+                            + cos((Double(x) / 220) + t * 0.35 + phase) * amplitude * 0.5
+                        path.addLine(to: CGPoint(x: x, y: y))
+                    }
+                    path.addLine(to: CGPoint(x: size.width, y: size.height))
+                    path.addLine(to: CGPoint(x: 0, y: size.height))
+                    path.closeSubpath()
+                    ctx.fill(path, with: .color(colors[i].opacity(0.08)))
+                }
+            }
+        }
+        .blur(radius: 40)
+        .allowsHitTesting(false)
+    }
+}
+
+// ==========================================================
+// MARK: - 🌠 SHOOTING STARS
+// ==========================================================
+struct ShootingStars: View {
+    var body: some View {
+        TimelineView(.animation) { timeline in
+            let t = timeline.date.timeIntervalSinceReferenceDate
+            Canvas { ctx, size in
+                for i in 0..<4 {
+                    let period = 4.5 + Double(i) * 1.8
+                    let offset = Double(i) * 1.4
+                    let progress = (t + offset).truncatingRemainder(dividingBy: period) / period
+                    if progress < 0.12 {
+                        let localProgress = progress / 0.12
+                        let startX = size.width * (0.05 + Double(i) * 0.28)
+                        let startY = size.height * (0.05 + Double(i % 2) * 0.15)
+                        let length: CGFloat = 140
+                        let x = startX + localProgress * 500
+                        let y = startY + localProgress * 380
+                        let alpha = 1 - localProgress
+
+                        var path = Path()
+                        path.move(to: CGPoint(x: x - length, y: y - length * 0.76))
+                        path.addLine(to: CGPoint(x: x, y: y))
+                        ctx.stroke(
+                            path,
+                            with: .linearGradient(
+                                Gradient(colors: [.clear, Color.cyan.opacity(alpha), Color.white.opacity(alpha)]),
+                                startPoint: CGPoint(x: x - length, y: y - length * 0.76),
+                                endPoint: CGPoint(x: x, y: y)
+                            ),
+                            style: StrokeStyle(lineWidth: 1.4, lineCap: .round)
+                        )
+                        let head = CGRect(x: x - 2.5, y: y - 2.5, width: 5, height: 5)
+                        ctx.fill(Ellipse().path(in: head), with: .color(.white.opacity(alpha)))
+                    }
+                }
+            }
+        }
+        .allowsHitTesting(false)
+    }
+}
+
+// ==========================================================
+// MARK: - ✨ TWINKLE STARS (hạt sáng nhấp nháy)
+// ==========================================================
+struct TwinkleStars: View {
+    var count: Int = 42
+    struct Star: Identifiable {
+        let id = UUID()
+        let xRatio: CGFloat
+        let yRatio: CGFloat
+        let size: CGFloat
+        let phase: Double
+        let speed: Double
+    }
+    @State private var stars: [Star] = []
+
+    var body: some View {
+        GeometryReader { geo in
+            TimelineView(.animation) { timeline in
+                let t = timeline.date.timeIntervalSinceReferenceDate
+                Canvas { ctx, size in
+                    for s in stars {
+                        let alpha = 0.15 + 0.65 * (0.5 + 0.5 * sin(t * s.speed + s.phase))
+                        let x = s.xRatio * size.width
+                        let y = s.yRatio * size.height
+                        let rect = CGRect(x: x, y: y, width: s.size, height: s.size)
+                        ctx.fill(Ellipse().path(in: rect), with: .color(.white.opacity(alpha)))
+                    }
+                }
+            }
+            .onAppear {
+                stars = (0..<count).map { _ in
+                    Star(
+                        xRatio: .random(in: 0...1),
+                        yRatio: .random(in: 0...1),
+                        size: .random(in: 1...2.6),
+                        phase: .random(in: 0...6.28),
+                        speed: .random(in: 1.2...3.2)
+                    )
+                }
+            }
+        }
+        .allowsHitTesting(false)
+    }
+}
+
+// ==========================================================
+// MARK: - 🌧 FALLING PARTICLES (mưa hạt sáng)
 // ==========================================================
 struct FallingParticles: View {
     var count: Int = 32
@@ -316,6 +262,9 @@ struct FallingParticles: View {
     }
 }
 
+// ==========================================================
+// MARK: - 🔮 PULSING ORB
+// ==========================================================
 struct PulsingOrb: View {
     let color: Color
     let size: CGFloat
@@ -338,6 +287,9 @@ struct PulsingOrb: View {
     }
 }
 
+// ==========================================================
+// MARK: - BACKGROUND TỔNG HỢP (7 lớp hiệu ứng)
+// ==========================================================
 struct ModernBackground: View {
     let urlString: String
     var particleCount: Int = 32
@@ -345,10 +297,15 @@ struct ModernBackground: View {
     var body: some View {
         GeometryReader { geo in
             ZStack {
+                // Lớp 1: nền tối
                 Color(red: 0.035, green: 0.04, blue: 0.065)
+
+                // Lớp 2: ảnh nền mờ
                 SecureCatalogImage(urlString: urlString, placeholder: Image(systemName: "sparkles"))
                     .frame(width: geo.size.width, height: geo.size.height)
                     .opacity(0.26)
+
+                // Lớp 3: gradient tối
                 LinearGradient(
                     colors: [
                         Color.black.opacity(0.55),
@@ -357,10 +314,23 @@ struct ModernBackground: View {
                     ],
                     startPoint: .top, endPoint: .bottom
                 )
+
+                // Lớp 4: aurora sóng
+                AuroraWaves().opacity(0.85)
+
+                // Lớp 5: 3 orb phát sáng
                 PulsingOrb(color: .cyan,   size: 300, xOffset: -150, yOffset: -260, duration: 4.5)
                 PulsingOrb(color: .purple, size: 260, xOffset:  170, yOffset:  400, duration: 5.5)
                 PulsingOrb(color: .blue,   size: 200, xOffset:  190, yOffset: -140, duration: 6.0)
+
+                // Lớp 6: sao nhấp nháy
+                TwinkleStars(count: 42).opacity(0.85)
+
+                // Lớp 7: mưa hạt
                 FallingParticles(count: particleCount).opacity(0.9)
+
+                // Lớp 8: sao băng
+                ShootingStars().opacity(0.9)
             }
         }
         .ignoresSafeArea()
@@ -368,7 +338,7 @@ struct ModernBackground: View {
 }
 
 // ==========================================================
-// MARK: - SPARKLE BURST
+// MARK: - ✨ SPARKLE BURST
 // ==========================================================
 struct SparkleBurst: View {
     let trigger: Bool
@@ -392,6 +362,41 @@ struct SparkleBurst: View {
 }
 
 // ==========================================================
+// MARK: - 🌟 AVATAR ORBITS (quỹ đạo hạt xoay quanh avatar)
+// ==========================================================
+struct AvatarOrbits: View {
+    let ringSize: CGFloat
+    let dotCount: Int
+    let dotSize: CGFloat
+    let speed: Double
+    let color: Color
+    var reverse: Bool = false
+
+    var body: some View {
+        TimelineView(.animation) { timeline in
+            let t = timeline.date.timeIntervalSinceReferenceDate
+            Canvas { ctx, size in
+                let center = CGPoint(x: size.width/2, y: size.height/2)
+                let radius = size.width/2 - dotSize
+                for i in 0..<dotCount {
+                    let direction = reverse ? -1.0 : 1.0
+                    let angle = t * speed * direction + Double(i) * (.pi * 2 / Double(dotCount))
+                    let x = center.x + CGFloat(cos(angle)) * radius
+                    let y = center.y + CGFloat(sin(angle)) * radius
+                    let rect = CGRect(x: x - dotSize/2, y: y - dotSize/2, width: dotSize, height: dotSize)
+                    // Glow + core
+                    let glowRect = rect.insetBy(dx: -1.5, dy: -1.5)
+                    ctx.fill(Ellipse().path(in: glowRect), with: .color(color.opacity(0.35)))
+                    ctx.fill(Ellipse().path(in: rect), with: .color(color))
+                }
+            }
+        }
+        .frame(width: ringSize, height: ringSize)
+        .allowsHitTesting(false)
+    }
+}
+
+// ==========================================================
 // MARK: - BUTTON STYLE
 // ==========================================================
 struct ClassicScaleButtonStyle: ButtonStyle {
@@ -403,64 +408,20 @@ struct ClassicScaleButtonStyle: ButtonStyle {
 }
 
 // ==========================================================
-// MARK: - SECURITY WARNING BANNER
-// ==========================================================
-struct SecurityWarningBanner: View {
-    let reason: String
-    var body: some View {
-        HStack(spacing: 9) {
-            Image(systemName: "exclamationmark.shield.fill")
-                .font(.system(size: 15, weight: .bold))
-                .foregroundColor(.white)
-            VStack(alignment: .leading, spacing: 1) {
-                Text("THIẾT BỊ KHÔNG AN TOÀN")
-                    .font(.system(size: 11.5, weight: .black, design: .rounded))
-                    .foregroundColor(.white)
-                Text("Phát hiện: \(reason) — Đã khoá tính năng.")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundColor(.white.opacity(0.85))
-                    .lineLimit(1)
-            }
-            Spacer(minLength: 0)
-            Image(systemName: "lock.fill")
-                .font(.system(size: 13, weight: .bold))
-                .foregroundColor(.white.opacity(0.9))
-        }
-        .padding(.horizontal, 12).padding(.vertical, 9)
-        .background(
-            LinearGradient(colors: [Color.red, Color.red.opacity(0.75)], startPoint: .leading, endPoint: .trailing)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.35), lineWidth: 1)
-        )
-        .shadow(color: .red.opacity(0.4), radius: 8)
-    }
-}
-
-// ==========================================================
-// MARK: - MÀN HÌNH CHÍNH
+// MARK: - MÀN HÌNH CHÍNH (KHÔNG CÒN HEADER "DANH SÁCH TRÒ CHƠI")
 // ==========================================================
 struct GameCatalogView: View {
     @StateObject private var store = GameCatalogStore.shared
     @StateObject private var authManager = CustomAuthManager.shared
-    @StateObject private var security = SecurityGuard.shared
     @Binding var isTabBarHidden: Bool
-    @State private var isRotating = false
     @State private var glowPulse = false
+    @State private var ringRotate: Double = 0
+    @State private var haloScale: CGFloat = 1.0
 
     private var isSessionActive: Bool {
         authManager.isAuthorized
         && !authManager.isInteractionLocked
         && !store.catalog.resolvedMaintenanceEnabled
-        && !security.compromised
-    }
-    private var totalEnabled: Int {
-        store.catalog.orderedGames.reduce(0) { $0 + $1.items.filter { $0.hidden != true && store.isMultiItemOn(item: $0) }.count }
-    }
-    private var totalFeatures: Int {
-        store.catalog.orderedGames.reduce(0) { $0 + $1.items.filter { $0.hidden != true }.count }
     }
 
     var body: some View {
@@ -468,13 +429,9 @@ struct GameCatalogView: View {
             ZStack {
                 ModernBackground(urlString: authManager.publicBackgroundURL, particleCount: 36)
                 ScrollView(showsIndicators: false) {
-                    VStack(spacing: 16) {
-                        if security.compromised, let reason = security.compromiseReason {
-                            SecurityWarningBanner(reason: reason)
-                                .padding(.horizontal, 16).padding(.top, 8)
-                        }
+                    VStack(spacing: 14) {
                         profileCard
-                        gamesSection
+                        gamesList
                     }
                     .padding(.bottom, 100)
                 }
@@ -483,11 +440,15 @@ struct GameCatalogView: View {
             }
             .toolbar(.hidden, for: .navigationBar)
             .onAppear {
-                isRotating = true
                 glowPulse = true
-                security.bootstrap()
                 store.rememberCatalogItems()
-                if !authManager.isAuthorized || store.catalog.resolvedMaintenanceEnabled || security.compromised {
+                withAnimation(.linear(duration: 12).repeatForever(autoreverses: false)) {
+                    ringRotate = 360
+                }
+                withAnimation(.easeInOut(duration: 2.8).repeatForever(autoreverses: true)) {
+                    haloScale = 1.15
+                }
+                if !authManager.isAuthorized || store.catalog.resolvedMaintenanceEnabled {
                     store.disableAllEnabledMods()
                 }
             }
@@ -501,51 +462,35 @@ struct GameCatalogView: View {
         }
     }
 
-    // MARK: PROFILE
+    // MARK: PROFILE CARD — AVATAR SIÊU HIỆU ỨNG
     private var profileCard: some View {
-        HStack(spacing: 13) {
-            ZStack {
-                Circle()
-                    .fill(Color.cyan.opacity(0.3))
-                    .frame(width: 78, height: 78)
-                    .blur(radius: 22)
-                    .scaleEffect(glowPulse ? 1.15 : 0.9)
-                    .opacity(glowPulse ? 0.9 : 0.5)
-                    .animation(.easeInOut(duration: 2.4).repeatForever(autoreverses: true), value: glowPulse)
-                Circle()
-                    .stroke(AngularGradient(colors: [.cyan, .white, .blue, .cyan], center: .center), lineWidth: 2.4)
-                    .frame(width: 64, height: 64)
-                    .rotationEffect(.degrees(isRotating ? 360 : 0))
-                    .animation(.linear(duration: 4.5).repeatForever(autoreverses: false), value: isRotating)
-                    .drawingGroup()
-                SecureCatalogImage(urlString: authManager.publicAvatarURL, placeholder: Image(systemName: "person.crop.circle.fill"))
-                    .frame(width: 54, height: 54).clipShape(Circle())
-                    .overlay(Circle().strokeBorder(Color.white.opacity(0.25), lineWidth: 1))
-            }
+        HStack(spacing: 14) {
+            avatarView
+
             VStack(alignment: .leading, spacing: 5) {
                 Text(authManager.publicAppName.isEmpty ? "Sovereign Solitude" : authManager.publicAppName)
                     .font(.system(size: 18, weight: .black, design: .rounded))
                     .foregroundColor(.white).lineLimit(1)
-                    .shadow(color: .cyan.opacity(0.35), radius: 5)
+                    .shadow(color: .cyan.opacity(0.4), radius: 6)
                 HStack(spacing: 5) {
-                    Circle().fill(security.compromised ? Color.red : Color.green)
+                    Circle().fill(Color.green)
                         .frame(width: 6, height: 6)
-                        .shadow(color: (security.compromised ? Color.red : Color.green).opacity(0.8), radius: 4)
-                    Text(security.compromised ? "Bảo mật cảnh báo" : "Online")
+                        .shadow(color: Color.green.opacity(0.9), radius: 4)
+                    Text("Online")
                         .font(.system(size: 10.5, weight: .semibold))
-                        .foregroundColor(security.compromised ? .red : .white.opacity(0.6))
-                }
-                HStack(spacing: 6) {
-                    inlineStat(icon: "gamecontroller.fill", value: "\(store.catalog.orderedGames.count)", tint: .cyan)
-                    inlineStat(icon: "bolt.fill", value: "\(totalFeatures)", tint: .orange)
-                    if totalEnabled > 0 { inlineStat(icon: "checkmark.seal.fill", value: "\(totalEnabled)", tint: .green) }
+                        .foregroundColor(.white.opacity(0.6))
                 }
             }
+
             Spacer(minLength: 4)
-            if totalEnabled > 0 {
+
+            // Nút tắt all
+            if totalEnabledAll > 0 {
                 Button {
                     iPhoneHaptics.shared.playTickOff()
-                    withAnimation(.spring(response: 0.26, dampingFraction: 0.8)) { store.disableAllEnabledMods() }
+                    withAnimation(.spring(response: 0.26, dampingFraction: 0.8)) {
+                        store.disableAllEnabledMods()
+                    }
                 } label: {
                     VStack(spacing: 2) {
                         Image(systemName: "power").font(.system(size: 13, weight: .black))
@@ -554,7 +499,10 @@ struct GameCatalogView: View {
                     .foregroundColor(.black)
                     .frame(width: 46, height: 46)
                     .background(
-                        LinearGradient(colors: [Color(red: 0.3, green: 0.95, blue: 1), .cyan], startPoint: .topLeading, endPoint: .bottomTrailing)
+                        LinearGradient(
+                            colors: [Color(red: 0.3, green: 0.95, blue: 1), .cyan],
+                            startPoint: .topLeading, endPoint: .bottomTrailing
+                        )
                     )
                     .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
                     .shadow(color: .cyan.opacity(0.5), radius: 8)
@@ -563,48 +511,101 @@ struct GameCatalogView: View {
             }
         }
         .padding(14)
-        .background(RoundedRectangle(cornerRadius: 22, style: .continuous).fill(Color.white.opacity(0.055)))
+        .background(
+            ZStack {
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .fill(Color.white.opacity(0.055))
+                // Shimmer quét qua card
+                GeometryReader { g in
+                    TimelineView(.animation) { timeline in
+                        let t = timeline.date.timeIntervalSinceReferenceDate
+                        let progress = t.truncatingRemainder(dividingBy: 4.0) / 4.0
+                        Rectangle()
+                            .fill(
+                                LinearGradient(
+                                    colors: [.clear, Color.cyan.opacity(0.18), .clear],
+                                    startPoint: .leading, endPoint: .trailing
+                                )
+                            )
+                            .frame(width: 120)
+                            .rotationEffect(.degrees(15))
+                            .offset(x: CGFloat(progress) * (g.size.width + 200) - 120)
+                            .blur(radius: 2)
+                    }
+                    .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+                }
+                .allowsHitTesting(false)
+            }
+        )
         .overlay(
             RoundedRectangle(cornerRadius: 22, style: .continuous)
                 .strokeBorder(
-                    LinearGradient(colors: [Color.cyan.opacity(0.45), Color.purple.opacity(0.2), Color.white.opacity(0.06)],
-                                   startPoint: .topLeading, endPoint: .bottomTrailing),
+                    LinearGradient(
+                        colors: [Color.cyan.opacity(0.5), Color.purple.opacity(0.25), Color.white.opacity(0.08)],
+                        startPoint: .topLeading, endPoint: .bottomTrailing
+                    ),
                     lineWidth: 1.2
                 )
         )
-        .shadow(color: .cyan.opacity(0.14), radius: 16, y: 4)
+        .shadow(color: .cyan.opacity(0.18), radius: 18, y: 4)
         .padding(.horizontal, 16).padding(.top, 10)
     }
 
-    private func inlineStat(icon: String, value: String, tint: Color) -> some View {
-        HStack(spacing: 3) {
-            Image(systemName: icon).font(.system(size: 8.5, weight: .bold)).foregroundColor(tint)
-            Text(value).font(.system(size: 10.5, weight: .bold, design: .rounded)).foregroundColor(.white)
+    // MARK: AVATAR SIÊU HIỆU ỨNG
+    private var avatarView: some View {
+        ZStack {
+            // Halo breathing glow
+            Circle()
+                .fill(Color.cyan.opacity(0.35))
+                .frame(width: 82, height: 82)
+                .blur(radius: 24)
+                .scaleEffect(haloScale)
+                .opacity(glowPulse ? 0.95 : 0.5)
+
+            // Ring ngoài xoay chậm - dot quỹ đạo
+            AvatarOrbits(ringSize: 86, dotCount: 8, dotSize: 3.5, speed: 0.65, color: .cyan)
+
+            // Ring quay ngược
+            AvatarOrbits(ringSize: 78, dotCount: 5, dotSize: 2.8, speed: 0.9, color: Color(red: 0.6, green: 0.5, blue: 1.0), reverse: true)
+
+            // Ring xoay gradient (kiểu cũ)
+            Circle()
+                .stroke(
+                    AngularGradient(
+                        colors: [.cyan, .white, .blue, .purple, .cyan],
+                        center: .center
+                    ),
+                    style: StrokeStyle(lineWidth: 2.4, dash: [4, 6])
+                )
+                .frame(width: 64, height: 64)
+                .rotationEffect(.degrees(ringRotate))
+
+            // Ring tĩnh viền sáng
+            Circle()
+                .stroke(Color.white.opacity(0.25), lineWidth: 1)
+                .frame(width: 56, height: 56)
+
+            // Avatar
+            SecureCatalogImage(urlString: authManager.publicAvatarURL, placeholder: Image(systemName: "person.crop.circle.fill"))
+                .frame(width: 54, height: 54)
+                .clipShape(Circle())
+                .overlay(Circle().strokeBorder(Color.white.opacity(0.3), lineWidth: 1))
+                .shadow(color: .cyan.opacity(0.6), radius: 8)
         }
-        .padding(.horizontal, 7).padding(.vertical, 2.5)
-        .background(Color.white.opacity(0.07)).clipShape(Capsule())
+        .frame(width: 90, height: 90)
     }
 
-    // MARK: GAMES
-    private var gamesSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 7) {
-                Image(systemName: "square.grid.2x2.fill").font(.system(size: 10, weight: .black)).foregroundColor(.cyan)
-                Text("DANH SÁCH TRÒ CHƠI")
-                    .font(.system(size: 10.5, weight: .black, design: .rounded))
-                    .foregroundColor(.white.opacity(0.55)).tracking(1.2)
-                Spacer()
-                Text("\(store.catalog.orderedGames.count)")
-                    .font(.system(size: 10, weight: .black)).foregroundColor(.black)
-                    .padding(.horizontal, 8).padding(.vertical, 2.5)
-                    .background(Color.cyan).clipShape(Capsule())
-            }
-            .padding(.horizontal, 20)
-
+    // MARK: GAMES LIST (KHÔNG HEADER, HIỂN THỊ TRỰC TIẾP)
+    private var gamesList: some View {
+        Group {
             if store.catalog.orderedGames.isEmpty {
                 VStack(spacing: 12) {
-                    Image(systemName: "gamecontroller").font(.system(size: 32, weight: .ultraLight)).foregroundColor(.white.opacity(0.28))
-                    Text("Chưa có trò chơi nào").font(.system(size: 13.5, weight: .semibold)).foregroundColor(.white.opacity(0.55))
+                    Image(systemName: "gamecontroller")
+                        .font(.system(size: 32, weight: .ultraLight))
+                        .foregroundColor(.white.opacity(0.28))
+                    Text("Chưa có trò chơi nào")
+                        .font(.system(size: 13.5, weight: .semibold))
+                        .foregroundColor(.white.opacity(0.55))
                 }
                 .frame(maxWidth: .infinity).padding(.vertical, 44)
                 .background(RoundedRectangle(cornerRadius: 20, style: .continuous).fill(Color.white.opacity(0.04)))
@@ -629,14 +630,22 @@ struct GameCatalogView: View {
             }
         }
     }
+
+    private var totalEnabledAll: Int {
+        store.catalog.orderedGames.reduce(0) {
+            $0 + $1.items.filter { $0.hidden != true && store.isMultiItemOn(item: $0) }.count
+        }
+    }
 }
 
-// MARK: - GAME ROW
+// ==========================================================
+// MARK: - GAME ROW (RAINBOW BORDER SWEEP)
+// ==========================================================
 private struct ModernGameRow: View {
     let game: GameCatalogGame
     @StateObject private var store = GameCatalogStore.shared
-    @State private var shimmer: CGFloat = -1
     @State private var pulseGlow = false
+    @State private var borderRotation: Double = 0
 
     private var total: Int { game.items.filter { $0.hidden != true }.count }
     private var active: Int { game.items.filter { $0.hidden != true && store.isMultiItemOn(item: $0) }.count }
@@ -665,9 +674,12 @@ private struct ModernGameRow: View {
                             )
                     )
             }
+
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
-                    Text(game.name).font(.system(size: 15.5, weight: .bold, design: .rounded)).foregroundColor(.white).lineLimit(1)
+                    Text(game.name)
+                        .font(.system(size: 15.5, weight: .bold, design: .rounded))
+                        .foregroundColor(.white).lineLimit(1)
                     if active > 0 {
                         Text("\(active)")
                             .font(.system(size: 9, weight: .black, design: .rounded))
@@ -685,66 +697,62 @@ private struct ModernGameRow: View {
                         ZStack(alignment: .leading) {
                             Capsule().fill(Color.white.opacity(0.08))
                             Capsule()
-                                .fill(LinearGradient(colors: [.cyan, Color(red: 0.3, green: 0.9, blue: 1)], startPoint: .leading, endPoint: .trailing))
+                                .fill(LinearGradient(
+                                    colors: [.cyan, Color(red: 0.3, green: 0.9, blue: 1)],
+                                    startPoint: .leading, endPoint: .trailing
+                                ))
                                 .frame(width: g.size.width * progress)
-                                .shadow(color: .cyan.opacity(0.7), radius: 4)
+                                .shadow(color: .cyan.opacity(0.8), radius: 5)
                         }
                     }.frame(height: 3)
                 }
             }
+
             Spacer(minLength: 4)
             Image(systemName: "chevron.right")
                 .font(.system(size: 12, weight: .black)).foregroundColor(.black)
                 .frame(width: 28, height: 28)
-                .background(LinearGradient(colors: [Color(red: 0.25, green: 0.92, blue: 1), .cyan], startPoint: .topLeading, endPoint: .bottomTrailing))
+                .background(LinearGradient(
+                    colors: [Color(red: 0.25, green: 0.92, blue: 1), .cyan],
+                    startPoint: .topLeading, endPoint: .bottomTrailing
+                ))
                 .clipShape(Circle()).shadow(color: .cyan.opacity(0.5), radius: 5)
         }
         .padding(11)
         .background(
-            ZStack {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(Color.white.opacity(active > 0 ? 0.065 : 0.045))
-                if active > 0 {
-                    GeometryReader { g in
-                        Rectangle()
-                            .fill(LinearGradient(colors: [.clear, Color.cyan.opacity(0.25), .clear],
-                                                 startPoint: .leading, endPoint: .trailing))
-                            .frame(width: 80)
-                            .rotationEffect(.degrees(18))
-                            .offset(x: shimmer * g.size.width)
-                            .blur(radius: 2)
-                    }
-                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                    .allowsHitTesting(false)
-                }
-            }
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color.white.opacity(active > 0 ? 0.065 : 0.045))
         )
         .overlay(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .strokeBorder(
                     active > 0
-                    ? LinearGradient(colors: [Color.cyan.opacity(0.7), Color.white.opacity(0.2)], startPoint: .topLeading, endPoint: .bottomTrailing)
+                    ? LinearGradient(
+                        colors: [Color.cyan.opacity(0.7), Color.purple.opacity(0.5), Color.white.opacity(0.25), Color.cyan.opacity(0.7)],
+                        startPoint: .topLeading, endPoint: .bottomTrailing
+                    )
                     : LinearGradient(colors: [Color.white.opacity(0.08), Color.white.opacity(0.03)], startPoint: .topLeading, endPoint: .bottomTrailing),
                     lineWidth: active > 0 ? 1.2 : 0.8
                 )
         )
         .onAppear {
             if active > 0 { pulseGlow = true }
-            withAnimation(.linear(duration: 2.6).repeatForever(autoreverses: false)) { shimmer = 1.6 }
+            withAnimation(.linear(duration: 8).repeatForever(autoreverses: false)) {
+                borderRotation = 360
+            }
         }
         .onChange(of: active) { v in pulseGlow = v > 0 }
     }
 }
 
 // ==========================================================
-// MARK: - MÀN HÌNH CHI TIẾT (CÓ NÚT TẮT TẤT CẢ + BẢO MẬT)
+// MARK: - MÀN HÌNH CHI TIẾT
 // ==========================================================
 private struct GameDetailView: View {
     let gameID: String
     @Binding var isTabBarHidden: Bool
     @StateObject private var store = GameCatalogStore.shared
     @StateObject private var authManager = CustomAuthManager.shared
-    @StateObject private var security = SecurityGuard.shared
     @State private var selectedTabID = "aim"
     @State private var onlyActiveFilter = false
     @Environment(\.dismiss) private var dismiss
@@ -755,7 +763,6 @@ private struct GameDetailView: View {
         authManager.isAuthorized
         && !authManager.isInteractionLocked
         && !store.catalog.resolvedMaintenanceEnabled
-        && !security.compromised
     }
 
     private var items: [GameCatalogItem] {
@@ -788,10 +795,6 @@ private struct GameDetailView: View {
         ZStack {
             ModernBackground(urlString: authManager.publicBackgroundURL, particleCount: 22)
             VStack(spacing: 12) {
-                if security.compromised, let reason = security.compromiseReason {
-                    SecurityWarningBanner(reason: reason)
-                        .padding(.horizontal, 16).padding(.top, 6)
-                }
                 headerSection
                 categoryBar
                 modList
@@ -803,11 +806,10 @@ private struct GameDetailView: View {
         .navigationBarHidden(true)
         .onAppear {
             store.rememberCatalogItems()
-            security.bootstrap()
-            if store.catalog.resolvedMaintenanceEnabled || security.compromised {
+            if store.catalog.resolvedMaintenanceEnabled {
                 store.disableAllEnabledMods()
                 withAnimation { isTabBarHidden = false }
-                if store.catalog.resolvedMaintenanceEnabled { dismiss(); return }
+                dismiss(); return
             }
             withAnimation { isTabBarHidden = true }
             if !availableTabs.contains(where: { $0.id == selectedTabID }) {
@@ -823,7 +825,7 @@ private struct GameDetailView: View {
         }
     }
 
-    // MARK: HEADER (CÓ NÚT TẮT TẤT CẢ)
+    // MARK: HEADER
     private var headerSection: some View {
         HStack(spacing: 10) {
             Button {
@@ -878,8 +880,10 @@ private struct GameDetailView: View {
                     .foregroundColor(.black)
                     .padding(.horizontal, 9).padding(.vertical, 7)
                     .background(
-                        LinearGradient(colors: [Color(red: 1.0, green: 0.35, blue: 0.3), Color(red: 0.95, green: 0.2, blue: 0.2)],
-                                       startPoint: .topLeading, endPoint: .bottomTrailing)
+                        LinearGradient(
+                            colors: [Color(red: 1.0, green: 0.35, blue: 0.3), Color(red: 0.95, green: 0.2, blue: 0.2)],
+                            startPoint: .topLeading, endPoint: .bottomTrailing
+                        )
                     )
                     .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                     .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Color.white.opacity(0.35), lineWidth: 1))
@@ -932,8 +936,10 @@ private struct GameDetailView: View {
                 }
                 .foregroundColor(.black)
                 .padding(.horizontal, 12).padding(.vertical, 10)
-                .background(LinearGradient(colors: [Color(red: 0.25, green: 0.92, blue: 1.0), Color.cyan],
-                                           startPoint: .leading, endPoint: .trailing))
+                .background(LinearGradient(
+                    colors: [Color(red: 0.25, green: 0.92, blue: 1.0), Color.cyan],
+                    startPoint: .leading, endPoint: .trailing
+                ))
                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                 .shadow(color: .cyan.opacity(0.5), radius: 8)
             }
@@ -996,10 +1002,6 @@ private struct GameDetailView: View {
     private var launchButton: some View {
         Button {
             guard isSessionActive else { return }
-            guard SecurityGuard.shared.canPerformCriticalAction() else {
-                iPhoneHaptics.shared.playError(); return
-            }
-            guard SecurityGuard.shared.canLaunch() else { return }
             iPhoneHaptics.shared.playLaunch()
             let raw = (game?.launchURL ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             if let url = URL(string: raw), !raw.isEmpty { UIApplication.shared.open(url) }
@@ -1013,7 +1015,8 @@ private struct GameDetailView: View {
             .frame(maxWidth: .infinity).frame(height: 48)
             .background(LinearGradient(
                 colors: [Color(red: 0.25, green: 0.93, blue: 1.0), Color(red: 0.1, green: 0.8, blue: 0.98)],
-                startPoint: .leading, endPoint: .trailing))
+                startPoint: .leading, endPoint: .trailing
+            ))
             .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 15, style: .continuous).strokeBorder(Color.white.opacity(0.45), lineWidth: 1))
             .shadow(color: .cyan.opacity(0.5), radius: 12, y: 4)
@@ -1021,14 +1024,16 @@ private struct GameDetailView: View {
         .buttonStyle(ClassicScaleButtonStyle())
         .padding(.horizontal, 16).padding(.top, 8).padding(.bottom, 6)
         .background(
-            LinearGradient(colors: [Color.black.opacity(0.0), Color.black.opacity(0.88), Color.black], startPoint: .top, endPoint: .bottom)
-                .ignoresSafeArea()
+            LinearGradient(
+                colors: [Color.black.opacity(0.0), Color.black.opacity(0.88), Color.black],
+                startPoint: .top, endPoint: .bottom
+            ).ignoresSafeArea()
         )
     }
 }
 
 // ==========================================================
-// MARK: - MOD ROW (TÍCH HỢP SECURITY)
+// MARK: - MOD ROW
 // ==========================================================
 private struct ModernModRow: View {
     let item: GameCatalogItem
@@ -1045,7 +1050,6 @@ private struct ModernModRow: View {
     private var isSessionActive: Bool {
         authManager.isAuthorized && !authManager.isInteractionLocked
         && !store.catalog.resolvedMaintenanceEnabled
-        && !SecurityGuard.shared.compromised
     }
     private var isVip: Bool {
         item.name.localizedCaseInsensitiveContains("VIP")
@@ -1173,16 +1177,6 @@ private struct ModernModRow: View {
         guard !store.isMultiItemBusy(item: item) else {
             localToggle = store.isMultiItemOn(item: item); return
         }
-        guard SecurityGuard.shared.canPerformCriticalAction() else {
-            iPhoneHaptics.shared.playError()
-            localToggle = store.isMultiItemOn(item: item)
-            errorMessage = "Thiết bị không an toàn — thao tác bị chặn."
-            showErrorAlert = true
-            return
-        }
-        guard SecurityGuard.shared.throttleToggle(for: item.id) else {
-            localToggle = store.isMultiItemOn(item: item); return
-        }
 
         if newVal {
             guard isSessionActive else { localToggle = false; return }
@@ -1199,8 +1193,7 @@ private struct ModernModRow: View {
             Task {
                 await store.setMultiEnabled(true, item: item)
                 if !authManager.isAuthorized || authManager.isInteractionLocked
-                    || store.catalog.resolvedMaintenanceEnabled
-                    || SecurityGuard.shared.compromised {
+                    || store.catalog.resolvedMaintenanceEnabled {
                     await store.setMultiEnabled(false, item: item); return
                 }
                 if let error = store.lastError {
