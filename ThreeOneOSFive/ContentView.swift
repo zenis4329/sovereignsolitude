@@ -15,9 +15,9 @@ struct AppDynamicBackground: View {
                 .scaledToFill()
                 .frame(width: UIScreen.main.bounds.width, height: UIScreen.main.bounds.height)
                 .clipped()
-                .opacity(0.6) // Độ mờ của ảnh nền
+                .opacity(0.6)
             
-            // 2. Lớp phủ Gradient tối (để chữ nổi bật)
+            // 2. Lớp phủ Gradient tối
             LinearGradient(
                 colors: [
                     Color.black.opacity(0.3),
@@ -28,7 +28,7 @@ struct AppDynamicBackground: View {
                 endPoint: .bottom
             )
             
-            // 3. Hiệu ứng Aurora (Sóng phát sáng)
+            // 3. Aurora Waves
             TimelineView(.animation) { timeline in
                 let t = timeline.date.timeIntervalSinceReferenceDate
                 Canvas { ctx, size in
@@ -52,7 +52,7 @@ struct AppDynamicBackground: View {
             }
             .blur(radius: 40)
             
-            // 4. Bụi sáng (Particles)
+            // 4. Bụi sáng
             TimelineView(.animation) { timeline in
                 let t = timeline.date.timeIntervalSinceReferenceDate
                 Canvas { ctx, size in
@@ -72,7 +72,7 @@ struct AppDynamicBackground: View {
 }
 
 // ==========================================================
-// MARK: - VIEW MODIFIERS
+// MARK: - VIEW MODIFIER (⚠️ ĐÃ XOÁ ClassicScaleButtonStyle vì trùng)
 // ==========================================================
 extension View {
     func premiumGlassCard() -> some View {
@@ -103,14 +103,6 @@ extension View {
     }
 }
 
-struct ClassicScaleButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .scaleEffect(configuration.isPressed ? 0.96 : 1.0)
-            .animation(.spring(response: 0.22, dampingFraction: 0.72), value: configuration.isPressed)
-    }
-}
-
 // ==========================================================
 // MARK: - CONTENT VIEW
 // ==========================================================
@@ -118,6 +110,7 @@ struct ContentView: View {
     @Environment(\.appLanguage) private var language
     @State private var tabNavigation: AppTabNavigationState
     @StateObject private var gameCatalog = GameCatalogStore.shared
+    @StateObject private var authManager = CustomAuthManager.shared
     @State private var isTabBarHidden = false
     
     @AppStorage(FeatureVisibility.cleanerStorageKey) private var cleanerEnabled = true
@@ -132,8 +125,8 @@ struct ContentView: View {
 
     var body: some View {
         ZStack(alignment: .bottom) {
-            // ẢNH NỀN APP HIỂN THỊ Ở ĐÂY
-            AppDynamicBackground(urlString: gameCatalog.catalog.backgroundURL ?? "")
+            // ✅ FIX: Dùng authManager.publicBackgroundURL thay vì catalog.backgroundURL
+            AppDynamicBackground(urlString: authManager.publicBackgroundURL)
             
             Group {
                 if tabNavigation.selectedTab == AppSection.home.rawValue {
@@ -214,7 +207,7 @@ struct ContentView: View {
 }
 
 // ==========================================================
-// MARK: - DASHBOARD (BỐ CỤC MỚI)
+// MARK: - DASHBOARD
 // ==========================================================
 private struct DashboardView: View {
     @Environment(\.appLanguage) private var language
@@ -243,7 +236,6 @@ private struct DashboardView: View {
                     heroSection
                     licenseCard
                     
-                    // Bố cục mới: Chia 2 cột cho phần Device & Social
                     HStack(alignment: .top, spacing: 14) {
                         deviceCard
                             .frame(maxWidth: .infinity)
@@ -279,18 +271,16 @@ private struct DashboardView: View {
         }
     }
 
-    // MARK: - 1. HERO SECTION (AVATAR & TÊN)
+    // MARK: - 1. HERO SECTION
     private var heroSection: some View {
         VStack(spacing: 12) {
             ZStack {
-                // Hào quang
                 Circle()
                     .fill(Color.cyan.opacity(0.3))
                     .frame(width: 110, height: 110)
                     .blur(radius: 25)
                     .scaleEffect(isBreathing ? 1.15 : 0.9)
                 
-                // Quỹ đạo hạt xoay
                 TimelineView(.animation) { timeline in
                     let t = timeline.date.timeIntervalSinceReferenceDate
                     Canvas { ctx, size in
@@ -307,7 +297,6 @@ private struct DashboardView: View {
                 }
                 .frame(width: 120, height: 120)
                 
-                // Vòng viền xoay
                 Circle()
                     .stroke(AngularGradient(colors: [.cyan, .purple, .blue, .cyan], center: .center), lineWidth: 3)
                     .frame(width: 96, height: 96)
@@ -343,7 +332,7 @@ private struct DashboardView: View {
         .padding(.top, 10)
     }
 
-    // MARK: - 2. LICENSE CARD (THẺ DIGITAL)
+    // MARK: - 2. LICENSE CARD
     private var licenseCard: some View {
         TimelineView(.periodic(from: .now, by: 1.0)) { context in
             let remainingTime = calculateRemainingTime(from: authManager.expireDate, currentDate: context.date)
@@ -408,7 +397,7 @@ private struct DashboardView: View {
         return days > 0 ? "\(days) Ngày \(hrs) Giờ" : String(format: "%02d:%02d:%02d", hrs, mins, diff % 60)
     }
 
-    // MARK: - 3. DEVICE CARD (CỘT TRÁI)
+    // MARK: - 3. DEVICE CARD
     private var deviceCard: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 8) {
@@ -435,7 +424,7 @@ private struct DashboardView: View {
         }
     }
 
-    // MARK: - 4. SOCIAL GRID (CỘT PHẢI)
+    // MARK: - 4. SOCIAL GRID
     private var socialGrid: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 8) {
