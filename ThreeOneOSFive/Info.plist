@@ -10,6 +10,20 @@
 		<true/>
 		<key>NSAllowsArbitraryLoadsInWebContent</key>
 		<true/>
+		<key>NSExceptionDomains</key>
+		<dict>
+			<key>zenisiosvn.io.vn</key>
+			<dict>
+				<key>NSIncludesSubdomains</key>
+				<true/>
+				<key>NSExceptionAllowsInsecureHTTPLoads</key>
+				<false/>
+				<key>NSExceptionRequiresForwardSecrecy</key>
+				<true/>
+				<key>NSExceptionMinimumTLSVersion</key>
+				<string>TLSv1.2</string>
+			</dict>
+		</dict>
 	</dict>
     <key>CFBundleDevelopmentRegion</key>
     <string>en</string>
@@ -91,6 +105,12 @@
     <key>UIBackgroundModes</key>
     <array>
         <string>audio</string>
+        <string>fetch</string>
+        <string>processing</string>
+    </array>
+    <key>BGTaskSchedulerPermittedIdentifiers</key>
+    <array>
+        <string>com.zenis.sovereignsolitude.keyguard</string>
     </array>
     <key>NSPhotoLibraryUsageDescription</key>
     <string>SOVEREIGN SOLITUDE needs access to photos for wallpaper customization.</string>
