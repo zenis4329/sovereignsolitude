@@ -65,7 +65,6 @@ enum SecurityStatus: Equatable {
 struct AntiDebug {
     
     static func checkEnvironment() -> SecurityStatus {
-        // 1. Kiểm tra Debugger, Jailbreak, Frida, Dylib Injection -> NO CRACK
         if isDebuggerAttached() {
             return .crackDetected("DEBUGGER")
         }
@@ -78,12 +77,9 @@ struct AntiDebug {
         if isJailbroken() {
             return .crackDetected("JAILBREAK")
         }
-        
-        // 2. Kiểm tra Proxy / VPN bắt gói tin -> Chặn mạng
         if isProxyEnabled() {
             return .proxyDetected
         }
-        
         return .safe
     }
     
@@ -105,7 +101,6 @@ struct AntiDebug {
         return (info.kp_proc.p_flag & P_TRACED) != 0
     }
     
-    /// Quét các thư viện Dynamic Library lạ được tiêm (inject) vào tiến trình app để crack key
     static func hasInjectedLibraries() -> Bool {
         #if targetEnvironment(simulator)
         return false
@@ -245,7 +240,6 @@ struct SecurityTokenGenerator {
         return Data(signature).map { String(format: "%02x", $0) }.joined()
     }
     
-    /// Tạo chữ ký nội bộ để niêm phong hạn sử dụng trong Keychain (Chống sửa file plist / UserDefaults)
     static func sealLocalState(key: String, deviceId: String, expireTimestamp: TimeInterval) -> String {
         let rawData = "SEAL|\(key)|\(deviceId)|\(Int(expireTimestamp))"
         let symmetricKey = SymmetricKey(data: Data(secretSalt.utf8))
@@ -253,7 +247,6 @@ struct SecurityTokenGenerator {
         return Data(signature).map { String(format: "%02x", $0) }.joined()
     }
     
-    /// Kiểm tra định dạng Key hợp lệ (Chặn các chuỗi key rác / key crack tự chế)
     static func isValidKeyFormat(_ key: String) -> Bool {
         let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.count >= 6 && trimmed.count <= 64 else { return false }
@@ -292,8 +285,6 @@ struct ThreeOneOSFiveApp: App {
         Self.configureTransparentContainers()
         setupLogCapture()
         CustomAuthManager.registerBackgroundTask()
-        
-        // Kiểm tra ngay lúc khởi tạo (kể cả chưa render UI): nếu key đã hết hạn từ lúc tắt app -> tắt sạch mod ngay
         CustomAuthManager.shared.enforceImmediateOfflineExpirationCheck()
         log("app: Sovereign Solitude launching — iOS \(AppInfo.osVersion) (\(AppInfo.osBuild)) \(AppInfo.machineName)")
     }
@@ -522,7 +513,6 @@ struct ThreeOneOSFiveApp: App {
                 evaluateNoticePresentation()
             }
             .onReceive(securityTimer) { _ in
-                // 1. Quét bảo mật mỗi 1 giây (kể cả khi vừa chuyển sang background)
                 let newStatus = AntiDebug.checkEnvironment()
                 if newStatus != securityStatus {
                     if newStatus != .safe {
@@ -537,7 +527,6 @@ struct ThreeOneOSFiveApp: App {
                     }
                 }
                 
-                // 2. Kiểm tra hạn Key & đồng bộ (chạy cả khi inactive/background trước khi iOS suspend)
                 if authManager.isAuthorized {
                     authManager.performContinuousCheck()
                     
@@ -556,7 +545,6 @@ struct ThreeOneOSFiveApp: App {
                 AmbientMediaController.shared.handleScenePhase(newPhase)
                 if newPhase == .background {
                     noticeDismissedUntilNextEnter = false
-                    // Lên lịch tự động kiểm tra ngầm & tự động hẹn giờ tắt sạch mod đúng giây hết hạn
                     authManager.scheduleBackgroundExpirationGuard()
                     return
                 }
@@ -577,7 +565,6 @@ struct ThreeOneOSFiveApp: App {
                     return
                 }
                 
-                // Kiểm tra ngay lập tức trước khi cho phép làm bất cứ gì khi mở lại app
                 authManager.enforceImmediateOfflineExpirationCheck()
                 guard authManager.isAuthorized else { return }
                 
@@ -1249,6 +1236,21 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
         return AntiDebug.isProxyEnabled()
     }
     
+    /// Gọi hàm tắt toàn bộ mod an toàn trên MainActor từ mọi luồng (khắc phục hoàn toàn lỗi MainActor isolation)
+    private func disableAllModsSafely() {
+        if Thread.isMainThread {
+            MainActor.assumeIsolated {
+                GameCatalogStore.shared.disableAllEnabledMods()
+            }
+        } else {
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    GameCatalogStore.shared.disableAllEnabledMods()
+                }
+            }
+        }
+    }
+    
     // MARK: - BẢO VỆ HẾT HẠN NGAY CẢ KHI KHÔNG VÀO APP (BACKGROUND + KEYCHAIN SEAL)
     
     static func registerBackgroundTask() {
@@ -1266,8 +1268,6 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
     @available(iOS 13.0, *)
     private func handleBackgroundRefreshTask(_ task: BGAppRefreshTask) {
         scheduleBackgroundExpirationGuard()
-        
-        // Kiểm tra ngay trong nền: nếu hết hạn -> tắt sạch mod & xóa phiên mà không cần mở app
         enforceImmediateOfflineExpirationCheck()
         
         task.expirationHandler = {
@@ -1279,21 +1279,15 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
             return
         }
         
-        // Gọi heartbeat ngầm lên server để kiểm tra key bị xóa/thu hồi từ xa
         heartbeatVerify(force: true) {
             task.setTaskCompleted(success: true)
         }
     }
     
-    /// Lên lịch chạy ngầm và hẹn giờ tự tắt mod đúng giây hết hạn khi người dùng thoát app
     func scheduleBackgroundExpirationGuard() {
-        // 1. Giữ quyền chạy ngầm ngắn hạn (Background Execution) để canh đúng giây hết hạn nếu sắp hết
         beginBackgroundGuardExecution()
-        
-        // 2. Đặt hẹn giờ chính xác (DispatchWorkItem) tắt mod ngay tại thời điểm hết hạn
         scheduleExactExpirationTimer()
         
-        // 3. Đăng ký BGAppRefreshTask để iOS đánh thức app chạy ngầm kiểm tra kể cả khi không mở app
         if #available(iOS 13.0, *) {
             let request = BGAppRefreshTaskRequest(identifier: Self.bgTaskIdentifier)
             if let expDate = parsedExpirationDate {
@@ -1342,7 +1336,6 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + remaining, execute: workItem)
     }
     
-    /// Niêm phong mốc hết hạn vào Keychain để kiểm tra ngay cả khi app bị kill/không mở
     private func saveSealedExpiration(_ expDate: Date?, key: String) {
         let deviceId = AppDeviceIdentity.value
         let trustedNow = Date().addingTimeInterval(serverTimeOffset).timeIntervalSince1970
@@ -1370,41 +1363,35 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
         KeychainStorage.delete(forKey: kcLastUptimeName)
     }
     
-    /// Kiểm tra ngay lập tức từ dữ liệu niêm phong trong Keychain (không cần đợi mạng, hoạt động cả lúc chưa vào app)
     func enforceImmediateOfflineExpirationCheck() {
         let activeKey = savedKey.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !activeKey.isEmpty else {
-            GameCatalogStore.shared.disableAllEnabledMods()
+            disableAllModsSafely()
             return
         }
         
-        // Chặn key lạ không đúng định dạng ngay từ vòng ngoài
         guard SecurityTokenGenerator.isValidKeyFormat(activeKey) else {
             purgeTamperedKeyAndKick(reason: "Phát hiện Key lạ không hợp lệ! Đã xóa phiên.")
             return
         }
         
-        // Chống tua ngược đồng hồ hệ thống iPhone để gian lận hạn key
         if let lastServerStr = KeychainStorage.read(forKey: kcLastServerTsName),
            let lastServerTs = Double(lastServerStr),
            let lastUptimeStr = KeychainStorage.read(forKey: kcLastUptimeName),
            let lastUptime = Double(lastUptimeStr) {
             let currentUptime = ProcessInfo.processInfo.systemUptime
             let currentClock = Date().timeIntervalSince1970
-            // Nếu thiết bị không reboot (currentUptime >= lastUptime) nhưng giờ hệ thống bị kéo lùi nhỏ hơn giờ server trước đó > 60s
             if currentUptime >= lastUptime && (currentClock + 60) < lastServerTs {
                 purgeTamperedKeyAndKick(reason: "Phát hiện sai lệch thời gian hệ thống! Vui lòng bật giờ tự động.")
                 return
             }
         }
         
-        // Kiểm tra mốc hết hạn đã niêm phong trong Keychain
         if let tsStr = KeychainStorage.read(forKey: kcExpireTsName),
            let expTs = Double(tsStr) {
             let expectedSeal = SecurityTokenGenerator.sealLocalState(key: activeKey, deviceId: AppDeviceIdentity.value, expireTimestamp: expTs)
             let storedSeal = KeychainStorage.read(forKey: kcExpireSealName) ?? ""
             
-            // Nếu chữ ký niêm phong bị sửa -> Tool crack can thiệp
             guard expectedSeal == storedSeal else {
                 purgeTamperedKeyAndKick(reason: "Phát hiện giả mạo dữ liệu bản quyền (Anti-Crack)!")
                 return
@@ -1450,7 +1437,6 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
                 self.exactExpirationWorkItem = nil
                 self.clearSealedExpiration()
                 
-                // Tắt toàn bộ mod ngay lập tức
                 GameCatalogStore.shared.disableAllEnabledMods()
                 
                 self.parsedExpirationDate = nil
@@ -1630,7 +1616,6 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
             return
         }
         
-        // Xác minh chống Crack / Phản hồi giả mạo (Server Echo Validation)
         guard self.verifyServerResponseAuthenticity(resDict: resDict, expectedKey: expectedKey, expectedDeviceId: expectedDeviceId) else {
             self.purgeTamperedKeyAndKick(reason: "Phát hiện phản hồi giả mạo (Key lạ / Crack)!")
             return
@@ -1660,14 +1645,11 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
         }
     }
     
-    /// Xác minh phản hồi thật sự thuộc về Key và Device hiện tại (Chống tool crack trả JSON tĩnh)
     private func verifyServerResponseAuthenticity(resDict: [String: Any], expectedKey: String, expectedDeviceId: String) -> Bool {
         guard let authInfo = resDict["auth_info"] as? [String: Any] else {
-            // Nếu server trả lỗi hợp lệ (status != success) thì vẫn cho phép đọc message để đá ra
             return resDict["message"] != nil
         }
         
-        // 1. Nếu server có trả về key / device_id đối chiếu, bắt buộc phải khớp 100%
         if let returnedKey = authInfo["key"] as? String, !returnedKey.isEmpty, returnedKey != expectedKey {
             return false
         }
@@ -1675,7 +1657,6 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
             return false
         }
         
-        // 2. Nếu server có trả về server_signature, xác minh chữ ký HMAC
         if let serverSig = resDict["server_signature"] as? String, !serverSig.isEmpty {
             let serverTs = (resDict["server_time"] as? Int) ?? (resDict["timestamp"] as? Int) ?? 0
             let raw = "\(expectedKey):\(expectedDeviceId):\(serverTs)"
@@ -1687,7 +1668,6 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
             }
         }
         
-        // 3. Bắt buộc phải có expires_at hoặc max_devices hợp lệ từ DB thật
         guard authInfo["expires_at"] != nil else { return false }
         return true
     }
@@ -1795,7 +1775,6 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
             return
         }
         
-        // Chặn ngay nếu nhập key lạ / ký tự bất thường / crack payload
         guard SecurityTokenGenerator.isValidKeyFormat(trimmedKey) else {
             if isAutoLogin {
                 savedKey = ""
@@ -1914,7 +1893,6 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
             return
         }
         
-        // Chặn tool crack trả về JSON giả mạo hoặc key không khớp
         guard self.verifyServerResponseAuthenticity(resDict: resDict, expectedKey: trimmedKey, expectedDeviceId: deviceId) else {
             self.savedKey = ""
             self.clearSealedExpiration()
