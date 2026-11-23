@@ -4,6 +4,8 @@ import AudioToolbox
 import Darwin
 import Foundation
 import Security
+import MachO
+import BackgroundTasks
 
 // MARK: - LƯU TRỮ KEYCHAIN AN TOÀN
 enum KeychainStorage {
@@ -21,7 +23,7 @@ enum KeychainStorage {
         guard !value.isEmpty else { return }
         var attributes = query
         attributes[kSecValueData as String] = data
-        attributes[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+        attributes[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
         SecItemAdd(attributes as CFDictionary, nil)
     }
     
@@ -53,22 +55,31 @@ enum KeychainStorage {
     }
 }
 
-// MARK: - HỆ THỐNG BẢO MẬT & CHỐNG DEBUG
-enum SecurityStatus {
+// MARK: - HỆ THỐNG BẢO MẬT, CHỐNG CRACK KEY LẠ & CHỐNG DEBUG
+enum SecurityStatus: Equatable {
     case safe
     case proxyDetected
-    case crackDetected
+    case crackDetected(String)
 }
 
 struct AntiDebug {
     
     static func checkEnvironment() -> SecurityStatus {
-        // 1. Kiểm tra Debugger, Jailbreak, Frida -> NO CRACK
-        if isDebuggerAttached() || isJailbroken() || isFridaRunning() {
-            return .crackDetected
+        // 1. Kiểm tra Debugger, Jailbreak, Frida, Dylib Injection -> NO CRACK
+        if isDebuggerAttached() {
+            return .crackDetected("DEBUGGER")
+        }
+        if isFridaRunning() {
+            return .crackDetected("FRIDA")
+        }
+        if hasInjectedLibraries() {
+            return .crackDetected("INJECTION")
+        }
+        if isJailbroken() {
+            return .crackDetected("JAILBREAK")
         }
         
-        // 2. Kiểm tra Proxy -> Chặn mạng
+        // 2. Kiểm tra Proxy / VPN bắt gói tin -> Chặn mạng
         if isProxyEnabled() {
             return .proxyDetected
         }
@@ -81,6 +92,7 @@ struct AntiDebug {
         if let http = proxySettings["HTTPProxy"] as? String, !http.isEmpty { return true }
         if let https = proxySettings["HTTPSProxy"] as? String, !https.isEmpty { return true }
         if let socks = proxySettings["SOCKSProxy"] as? String, !socks.isEmpty { return true }
+        if let pac = proxySettings["ProxyAutoConfigURLString"] as? String, !pac.isEmpty { return true }
         return false
     }
     
@@ -93,13 +105,45 @@ struct AntiDebug {
         return (info.kp_proc.p_flag & P_TRACED) != 0
     }
     
+    /// Quét các thư viện Dynamic Library lạ được tiêm (inject) vào tiến trình app để crack key
+    static func hasInjectedLibraries() -> Bool {
+        #if targetEnvironment(simulator)
+        return false
+        #else
+        let suspiciousLibs = [
+            "substrate", "substitute", "ellekit", "frida", "cycript",
+            "sslkillswitch", "shadow", "liberty", "flyjb", "choicy",
+            "flex", "reveal", "cephei", "rocketbootstrap", "tweakinject",
+            "libhooker", "fishhook", "crack", "bypass", "keygen"
+        ]
+        
+        let imageCount = _dyld_image_count()
+        for i in 0..<imageCount {
+            if let imageNamePtr = _dyld_get_image_name(i) {
+                let imageName = String(cString: imageNamePtr).lowercased()
+                for lib in suspiciousLibs {
+                    if imageName.contains(lib) {
+                        return true
+                    }
+                }
+            }
+        }
+        return false
+        #endif
+    }
+    
     static func isJailbroken() -> Bool {
         #if targetEnvironment(simulator)
         return false
         #else
         let paths = [
             "/Applications/Cydia.app",
+            "/Applications/Sileo.app",
+            "/Applications/Zebra.app",
             "/Library/MobileSubstrate/MobileSubstrate.dylib",
+            "/usr/lib/libhooker.dylib",
+            "/usr/lib/libsubstitute.dylib",
+            "/var/jb",
             "/bin/bash",
             "/usr/sbin/sshd",
             "/etc/apt",
@@ -121,23 +165,24 @@ struct AntiDebug {
     }
     
     static func isFridaRunning() -> Bool {
-        let port = 27042
-        let socketFD = socket(AF_INET, SOCK_STREAM, 0)
-        if socketFD == -1 { return false }
-        
-        var addr = sockaddr_in()
-        addr.sin_family = sa_family_t(AF_INET)
-        addr.sin_port = in_port_t(port).bigEndian
-        addr.sin_addr.s_addr = inet_addr("127.0.0.1")
-        
-        let result = withUnsafePointer(to: &addr) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                connect(socketFD, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+        let ports: [UInt16] = [27042, 27043]
+        for port in ports {
+            let socketFD = socket(AF_INET, SOCK_STREAM, 0)
+            if socketFD == -1 { continue }
+            
+            var addr = sockaddr_in()
+            addr.sin_family = sa_family_t(AF_INET)
+            addr.sin_port = in_port_t(port).bigEndian
+            addr.sin_addr.s_addr = inet_addr("127.0.0.1")
+            
+            let result = withUnsafePointer(to: &addr) {
+                $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                    connect(socketFD, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+                }
             }
+            close(socketFD)
+            if result == 0 { return true }
         }
-        close(socketFD)
-        
-        if result == 0 { return true }
         
         let fridaPaths = ["/usr/sbin/frida-server", "/usr/lib/frida/frida-agent.dylib"]
         for path in fridaPaths {
@@ -163,7 +208,7 @@ struct SecurityBlockView: View {
                         .foregroundColor(.white)
                         .multilineTextAlignment(.center)
                         .shadow(color: .red.opacity(0.8), radius: 10)
-                } else if status == .crackDetected {
+                } else {
                     Text("𝐒𝐨𝐯𝐞𝐫𝐞𝐢𝐠𝐧 𝐒𝐨𝐥𝐢𝐭𝐮𝐝𝐞 NO CRACK")
                         .font(.system(size: 26, weight: .black, design: .serif))
                         .foregroundColor(.white)
@@ -183,7 +228,7 @@ struct SecurityBlockView: View {
     }
 }
 
-// MARK: - MÃ HÓA TOKEN 30S
+// MARK: - MÃ HÓA TOKEN 30S & XÁC MINH CHỮ KÝ PHẢN HỒI CHỐNG KEY LẠ
 struct SecurityTokenGenerator {
     private static var secretSalt: String {
         let p1 = "SOLITUDE_"
@@ -198,6 +243,22 @@ struct SecurityTokenGenerator {
         let symmetricKey = SymmetricKey(data: Data(secretSalt.utf8))
         let signature = HMAC<SHA256>.authenticationCode(for: Data(rawData.utf8), using: symmetricKey)
         return Data(signature).map { String(format: "%02x", $0) }.joined()
+    }
+    
+    /// Tạo chữ ký nội bộ để niêm phong hạn sử dụng trong Keychain (Chống sửa file plist / UserDefaults)
+    static func sealLocalState(key: String, deviceId: String, expireTimestamp: TimeInterval) -> String {
+        let rawData = "SEAL|\(key)|\(deviceId)|\(Int(expireTimestamp))"
+        let symmetricKey = SymmetricKey(data: Data(secretSalt.utf8))
+        let signature = HMAC<SHA256>.authenticationCode(for: Data(rawData.utf8), using: symmetricKey)
+        return Data(signature).map { String(format: "%02x", $0) }.joined()
+    }
+    
+    /// Kiểm tra định dạng Key hợp lệ (Chặn các chuỗi key rác / key crack tự chế)
+    static func isValidKeyFormat(_ key: String) -> Bool {
+        let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.count >= 6 && trimmed.count <= 64 else { return false }
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_"))
+        return trimmed.unicodeScalars.allSatisfy { allowed.contains($0) }
     }
 }
 
@@ -230,6 +291,10 @@ struct ThreeOneOSFiveApp: App {
         URLProtocol.registerClass(SecurityURLProtocol.self)
         Self.configureTransparentContainers()
         setupLogCapture()
+        CustomAuthManager.registerBackgroundTask()
+        
+        // Kiểm tra ngay lúc khởi tạo (kể cả chưa render UI): nếu key đã hết hạn từ lúc tắt app -> tắt sạch mod ngay
+        CustomAuthManager.shared.enforceImmediateOfflineExpirationCheck()
         log("app: Sovereign Solitude launching — iOS \(AppInfo.osVersion) (\(AppInfo.osBuild)) \(AppInfo.machineName)")
     }
 
@@ -457,28 +522,31 @@ struct ThreeOneOSFiveApp: App {
                 evaluateNoticePresentation()
             }
             .onReceive(securityTimer) { _ in
-                // 1. Quét bảo mật mỗi 1 giây
+                // 1. Quét bảo mật mỗi 1 giây (kể cả khi vừa chuyển sang background)
                 let newStatus = AntiDebug.checkEnvironment()
                 if newStatus != securityStatus {
                     if newStatus != .safe {
                         authManager.lockInteractionsImmediately()
                         GameCatalogStore.shared.disableAllEnabledMods()
+                        if case .crackDetected = newStatus {
+                            authManager.purgeTamperedKeyAndKick(reason: "Phát hiện can thiệp trái phép! Key đã bị vô hiệu hóa.")
+                        }
                     }
                     withAnimation {
                         securityStatus = newStatus
                     }
                 }
                 
-                // 2. Kiểm tra hạn Key & đồng bộ bảo trì / gói Aim (chỉ chạy khi app đang mở trên màn hình)
-                guard scenePhase == .active else { return }
-                
+                // 2. Kiểm tra hạn Key & đồng bộ (chạy cả khi inactive/background trước khi iOS suspend)
                 if authManager.isAuthorized {
                     authManager.performContinuousCheck()
                     
-                    catalogSyncTick += 1
-                    if catalogSyncTick >= 12 {
-                        catalogSyncTick = 0
-                        refreshRemoteContent(presentNotice: !showOnboarding)
+                    if scenePhase == .active {
+                        catalogSyncTick += 1
+                        if catalogSyncTick >= 12 {
+                            catalogSyncTick = 0
+                            refreshRemoteContent(presentNotice: !showOnboarding)
+                        }
                     }
                 } else {
                     catalogSyncTick = 0
@@ -486,8 +554,14 @@ struct ThreeOneOSFiveApp: App {
             }
             .onChange(of: scenePhase) { newPhase in
                 AmbientMediaController.shared.handleScenePhase(newPhase)
-                if newPhase == .background || newPhase == .inactive {
-                    if newPhase == .background { noticeDismissedUntilNextEnter = false }
+                if newPhase == .background {
+                    noticeDismissedUntilNextEnter = false
+                    // Lên lịch tự động kiểm tra ngầm & tự động hẹn giờ tắt sạch mod đúng giây hết hạn
+                    authManager.scheduleBackgroundExpirationGuard()
+                    return
+                }
+                if newPhase == .inactive {
+                    authManager.performContinuousCheck()
                     return
                 }
                 guard newPhase == .active else { return }
@@ -497,15 +571,20 @@ struct ThreeOneOSFiveApp: App {
                 if currentSec != .safe {
                     authManager.lockInteractionsImmediately()
                     GameCatalogStore.shared.disableAllEnabledMods()
+                    if case .crackDetected = currentSec {
+                        authManager.purgeTamperedKeyAndKick(reason: "Phát hiện công cụ crack! Hệ thống đã khóa.")
+                    }
                     return
                 }
                 
+                // Kiểm tra ngay lập tức trước khi cho phép làm bất cứ gì khi mở lại app
+                authManager.enforceImmediateOfflineExpirationCheck()
                 guard authManager.isAuthorized else { return }
                 
                 authManager.verifyOnAppResume()
                 
                 catalogSyncTick = 0
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                     refreshRemoteContent(presentNotice: !showOnboarding)
                 }
                 if !showOnboarding { appState.detectSupport() }
@@ -1081,9 +1160,10 @@ extension Color {
     }
 }
 
-// MARK: - CUSTOM AUTH MANAGER (CHỈ ĐÁ KHI HẾT KEY / BẢO TRÌ - KHÔNG ĐÁ OAN KHI THOÁT APP)
+// MARK: - CUSTOM AUTH MANAGER (CHỐNG CRACK KEY LẠ & TỰ ĐÁ HẾT HẠN KỂ CẢ KHI KHÔNG VÀO APP)
 class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
     static let shared = CustomAuthManager()
+    static let bgTaskIdentifier = "com.zenis.sovereignsolitude.keyguard"
     
     @Published var isAuthorized: Bool = false
     @Published var isInteractionLocked: Bool = false
@@ -1095,13 +1175,19 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
     @AppStorage("license_expire_date") var expireDate: String = "N/A"
     @AppStorage("license_max_devices") var maxDevices: String = "1"
     
+    private let kcKeyName = "saved_license_key"
+    private let kcExpireTsName = "sealed_expire_ts"
+    private let kcExpireSealName = "sealed_expire_sig"
+    private let kcLastUptimeName = "sealed_last_uptime"
+    private let kcLastServerTsName = "sealed_last_server_ts"
+    
     var savedKey: String {
         get {
-            if let keychainKey = KeychainStorage.read(forKey: "saved_license_key"), !keychainKey.isEmpty {
+            if let keychainKey = KeychainStorage.read(forKey: kcKeyName), !keychainKey.isEmpty {
                 return keychainKey
             }
             if !legacySavedKey.isEmpty {
-                KeychainStorage.save(legacySavedKey, forKey: "saved_license_key")
+                KeychainStorage.save(legacySavedKey, forKey: kcKeyName)
                 let migrated = legacySavedKey
                 legacySavedKey = ""
                 return migrated
@@ -1109,7 +1195,7 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
             return ""
         }
         set {
-            KeychainStorage.save(newValue, forKey: "saved_license_key")
+            KeychainStorage.save(newValue, forKey: kcKeyName)
             legacySavedKey = ""
         }
     }
@@ -1129,9 +1215,11 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
     private var lastSuccessfulServerCheck: Date? = nil
     private var consecutiveFailures: Int = 0
     private var monitorTimer: Timer?
+    private var backgroundTaskID: UIBackgroundTaskIdentifier = .invalid
+    private var exactExpirationWorkItem: DispatchWorkItem?
     
-    private let heartbeatInterval: TimeInterval = 12.0
-    private let maxOfflineGracePeriod: TimeInterval = 300.0
+    private let heartbeatInterval: TimeInterval = 10.0
+    private let maxOfflineGracePeriod: TimeInterval = 180.0
     private let allowedHost = "zenisiosvn.io.vn"
     
     private var secretKey: String {
@@ -1161,6 +1249,175 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
         return AntiDebug.isProxyEnabled()
     }
     
+    // MARK: - BẢO VỆ HẾT HẠN NGAY CẢ KHI KHÔNG VÀO APP (BACKGROUND + KEYCHAIN SEAL)
+    
+    static func registerBackgroundTask() {
+        if #available(iOS 13.0, *) {
+            BGTaskScheduler.shared.register(forTaskWithIdentifier: bgTaskIdentifier, using: nil) { task in
+                guard let refreshTask = task as? BGAppRefreshTask else {
+                    task.setTaskCompleted(success: false)
+                    return
+                }
+                shared.handleBackgroundRefreshTask(refreshTask)
+            }
+        }
+    }
+    
+    @available(iOS 13.0, *)
+    private func handleBackgroundRefreshTask(_ task: BGAppRefreshTask) {
+        scheduleBackgroundExpirationGuard()
+        
+        // Kiểm tra ngay trong nền: nếu hết hạn -> tắt sạch mod & xóa phiên mà không cần mở app
+        enforceImmediateOfflineExpirationCheck()
+        
+        task.expirationHandler = {
+            self.enforceImmediateOfflineExpirationCheck()
+        }
+        
+        if !isAuthorized {
+            task.setTaskCompleted(success: true)
+            return
+        }
+        
+        // Gọi heartbeat ngầm lên server để kiểm tra key bị xóa/thu hồi từ xa
+        heartbeatVerify(force: true) {
+            task.setTaskCompleted(success: true)
+        }
+    }
+    
+    /// Lên lịch chạy ngầm và hẹn giờ tự tắt mod đúng giây hết hạn khi người dùng thoát app
+    func scheduleBackgroundExpirationGuard() {
+        // 1. Giữ quyền chạy ngầm ngắn hạn (Background Execution) để canh đúng giây hết hạn nếu sắp hết
+        beginBackgroundGuardExecution()
+        
+        // 2. Đặt hẹn giờ chính xác (DispatchWorkItem) tắt mod ngay tại thời điểm hết hạn
+        scheduleExactExpirationTimer()
+        
+        // 3. Đăng ký BGAppRefreshTask để iOS đánh thức app chạy ngầm kiểm tra kể cả khi không mở app
+        if #available(iOS 13.0, *) {
+            let request = BGAppRefreshTaskRequest(identifier: Self.bgTaskIdentifier)
+            if let expDate = parsedExpirationDate {
+                let target = min(expDate, Date().addingTimeInterval(60))
+                request.earliestBeginDate = max(Date().addingTimeInterval(15), target)
+            } else {
+                request.earliestBeginDate = Date().addingTimeInterval(60)
+            }
+            try? BGTaskScheduler.shared.submit(request)
+        }
+    }
+    
+    private func beginBackgroundGuardExecution() {
+        endBackgroundGuardExecution()
+        backgroundTaskID = UIApplication.shared.beginBackgroundTask(withName: "ZenisKeyExpirationGuard") { [weak self] in
+            self?.enforceImmediateOfflineExpirationCheck()
+            self?.endBackgroundGuardExecution()
+        }
+    }
+    
+    private func endBackgroundGuardExecution() {
+        if backgroundTaskID != .invalid {
+            UIApplication.shared.endBackgroundTask(backgroundTaskID)
+            backgroundTaskID = .invalid
+        }
+    }
+    
+    private func scheduleExactExpirationTimer() {
+        exactExpirationWorkItem?.cancel()
+        exactExpirationWorkItem = nil
+        
+        guard let expDate = parsedExpirationDate else { return }
+        let trustedNow = Date().addingTimeInterval(serverTimeOffset)
+        let remaining = expDate.timeIntervalSince(trustedNow)
+        
+        if remaining <= 0 {
+            enforceImmediateOfflineExpirationCheck()
+            return
+        }
+        
+        let workItem = DispatchWorkItem { [weak self] in
+            self?.kickOutToLogin(reason: "Key đã hết hạn! Hệ thống đã tự động tắt toàn bộ chức năng.")
+            self?.endBackgroundGuardExecution()
+        }
+        exactExpirationWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + remaining, execute: workItem)
+    }
+    
+    /// Niêm phong mốc hết hạn vào Keychain để kiểm tra ngay cả khi app bị kill/không mở
+    private func saveSealedExpiration(_ expDate: Date?, key: String) {
+        let deviceId = AppDeviceIdentity.value
+        let trustedNow = Date().addingTimeInterval(serverTimeOffset).timeIntervalSince1970
+        let uptime = ProcessInfo.processInfo.systemUptime
+        
+        KeychainStorage.save("\(trustedNow)", forKey: kcLastServerTsName)
+        KeychainStorage.save("\(uptime)", forKey: kcLastUptimeName)
+        
+        guard let expDate = expDate else {
+            KeychainStorage.delete(forKey: kcExpireTsName)
+            KeychainStorage.delete(forKey: kcExpireSealName)
+            return
+        }
+        
+        let ts = expDate.timeIntervalSince1970
+        let seal = SecurityTokenGenerator.sealLocalState(key: key, deviceId: deviceId, expireTimestamp: ts)
+        KeychainStorage.save("\(ts)", forKey: kcExpireTsName)
+        KeychainStorage.save(seal, forKey: kcExpireSealName)
+    }
+    
+    private func clearSealedExpiration() {
+        KeychainStorage.delete(forKey: kcExpireTsName)
+        KeychainStorage.delete(forKey: kcExpireSealName)
+        KeychainStorage.delete(forKey: kcLastServerTsName)
+        KeychainStorage.delete(forKey: kcLastUptimeName)
+    }
+    
+    /// Kiểm tra ngay lập tức từ dữ liệu niêm phong trong Keychain (không cần đợi mạng, hoạt động cả lúc chưa vào app)
+    func enforceImmediateOfflineExpirationCheck() {
+        let activeKey = savedKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !activeKey.isEmpty else {
+            GameCatalogStore.shared.disableAllEnabledMods()
+            return
+        }
+        
+        // Chặn key lạ không đúng định dạng ngay từ vòng ngoài
+        guard SecurityTokenGenerator.isValidKeyFormat(activeKey) else {
+            purgeTamperedKeyAndKick(reason: "Phát hiện Key lạ không hợp lệ! Đã xóa phiên.")
+            return
+        }
+        
+        // Chống tua ngược đồng hồ hệ thống iPhone để gian lận hạn key
+        if let lastServerStr = KeychainStorage.read(forKey: kcLastServerTsName),
+           let lastServerTs = Double(lastServerStr),
+           let lastUptimeStr = KeychainStorage.read(forKey: kcLastUptimeName),
+           let lastUptime = Double(lastUptimeStr) {
+            let currentUptime = ProcessInfo.processInfo.systemUptime
+            let currentClock = Date().timeIntervalSince1970
+            // Nếu thiết bị không reboot (currentUptime >= lastUptime) nhưng giờ hệ thống bị kéo lùi nhỏ hơn giờ server trước đó > 60s
+            if currentUptime >= lastUptime && (currentClock + 60) < lastServerTs {
+                purgeTamperedKeyAndKick(reason: "Phát hiện sai lệch thời gian hệ thống! Vui lòng bật giờ tự động.")
+                return
+            }
+        }
+        
+        // Kiểm tra mốc hết hạn đã niêm phong trong Keychain
+        if let tsStr = KeychainStorage.read(forKey: kcExpireTsName),
+           let expTs = Double(tsStr) {
+            let expectedSeal = SecurityTokenGenerator.sealLocalState(key: activeKey, deviceId: AppDeviceIdentity.value, expireTimestamp: expTs)
+            let storedSeal = KeychainStorage.read(forKey: kcExpireSealName) ?? ""
+            
+            // Nếu chữ ký niêm phong bị sửa -> Tool crack can thiệp
+            guard expectedSeal == storedSeal else {
+                purgeTamperedKeyAndKick(reason: "Phát hiện giả mạo dữ liệu bản quyền (Anti-Crack)!")
+                return
+            }
+            
+            let trustedNow = Date().addingTimeInterval(serverTimeOffset).timeIntervalSince1970
+            if trustedNow >= expTs {
+                kickOutToLogin(reason: "Key đã hết hạn! Tất cả chức năng đã tự động tắt.")
+                return
+            }
+        }
+    }
+    
     // MARK: - KHÓA CHẠM & KÍCH KHỎI GIAO DIỆN TỨC THÌ
     
     func lockInteractionsImmediately() {
@@ -1177,11 +1434,23 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
         }
     }
     
+    func purgeTamperedKeyAndKick(reason: String) {
+        savedKey = ""
+        KeychainStorage.delete(forKey: kcKeyName)
+        clearSealedExpiration()
+        kickOutToLogin(reason: reason)
+    }
+    
     func kickOutToLogin(reason: String) {
         let execute = {
             MainActor.assumeIsolated {
                 self.isInteractionLocked = true
                 self.stopContinuousMonitoring()
+                self.exactExpirationWorkItem?.cancel()
+                self.exactExpirationWorkItem = nil
+                self.clearSealedExpiration()
+                
+                // Tắt toàn bộ mod ngay lập tức
                 GameCatalogStore.shared.disableAllEnabledMods()
                 
                 self.parsedExpirationDate = nil
@@ -1214,6 +1483,7 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
         }
         RunLoop.main.add(timer, forMode: .common)
         self.monitorTimer = timer
+        scheduleExactExpirationTimer()
     }
     
     private func stopContinuousMonitoring() {
@@ -1228,6 +1498,9 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
             kickOutToLogin(reason: "Phát hiện Proxy! Phiên truy cập đã bị khóa.")
             return
         }
+        
+        enforceImmediateOfflineExpirationCheck()
+        guard isAuthorized else { return }
         
         if checkLocalExpiration() {
             return
@@ -1246,14 +1519,15 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
             return
         }
         
+        enforceImmediateOfflineExpirationCheck()
+        guard isAuthorized else { return }
+        
         if checkLocalExpiration() {
             return
         }
         
         isInteractionLocked = false
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-            self?.heartbeatVerify(force: true)
-        }
+        heartbeatVerify(force: true)
     }
     
     @discardableResult
@@ -1267,11 +1541,15 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
         return false
     }
     
-    private func heartbeatVerify(force: Bool = false) {
-        if isVerifyingHeartbeat && !force { return }
+    private func heartbeatVerify(force: Bool = false, completion: (() -> Void)? = nil) {
+        if isVerifyingHeartbeat && !force {
+            completion?()
+            return
+        }
         let activeKey = savedKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !activeKey.isEmpty else {
-            kickOutToLogin(reason: "Không tìm thấy Key xác thực!")
+        guard !activeKey.isEmpty, SecurityTokenGenerator.isValidKeyFormat(activeKey) else {
+            purgeTamperedKeyAndKick(reason: "Không tìm thấy Key hợp lệ!")
+            completion?()
             return
         }
         
@@ -1281,11 +1559,13 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
         let timestamp = Int(Date().timeIntervalSince1970)
         let deviceId = AppDeviceIdentity.value
         let token30s = SecurityTokenGenerator.generate30sToken(key: activeKey, deviceId: deviceId)
+        let nonce = UUID().uuidString
         let payloadDict: [String: Any] = [
             "action": "auth",
             "key": activeKey,
             "device_id": deviceId,
             "timestamp": timestamp,
+            "nonce": nonce,
             "signature": token30s
         ]
         
@@ -1293,6 +1573,7 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
               let jsonString = String(data: jsonData, encoding: .utf8),
               let encryptedBase64 = encryptAES(jsonString, key: secretKey) else {
             isVerifyingHeartbeat = false
+            completion?()
             return
         }
         
@@ -1308,14 +1589,15 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
         secureSession.dataTask(with: request) { [weak self] data, response, error in
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
-                    self?.handleHeartbeatResponse(data: data, response: response, error: error)
+                    self?.handleHeartbeatResponse(data: data, response: response, error: error, expectedKey: activeKey, expectedDeviceId: deviceId)
+                    completion?()
                 }
             }
         }.resume()
     }
     
     @MainActor
-    private func handleHeartbeatResponse(data: Data?, response: URLResponse?, error: Error?) {
+    private func handleHeartbeatResponse(data: Data?, response: URLResponse?, error: Error?, expectedKey: String, expectedDeviceId: String) {
         self.isVerifyingHeartbeat = false
         guard self.isAuthorized else { return }
         
@@ -1329,7 +1611,7 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
             
             if let lastSuccess = self.lastSuccessfulServerCheck,
                Date().timeIntervalSince(lastSuccess) > self.maxOfflineGracePeriod,
-               self.consecutiveFailures >= 5 {
+               self.consecutiveFailures >= 4 {
                 self.kickOutToLogin(reason: "Mất kết nối xác thực máy chủ quá lâu! Vui lòng kiểm tra mạng.")
             }
             return
@@ -1342,9 +1624,15 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
               let resData = decryptedString.data(using: .utf8),
               let resDict = try? JSONSerialization.jsonObject(with: resData) as? [String: Any] else {
             self.consecutiveFailures += 1
-            if self.consecutiveFailures >= 5 {
-                self.kickOutToLogin(reason: "Xác thực phiên thất bại! Vui lòng đăng nhập lại.")
+            if self.consecutiveFailures >= 3 {
+                self.purgeTamperedKeyAndKick(reason: "Dữ liệu xác thực bị can thiệp! Phiên đã khóa.")
             }
+            return
+        }
+        
+        // Xác minh chống Crack / Phản hồi giả mạo (Server Echo Validation)
+        guard self.verifyServerResponseAuthenticity(resDict: resDict, expectedKey: expectedKey, expectedDeviceId: expectedDeviceId) else {
+            self.purgeTamperedKeyAndKick(reason: "Phát hiện phản hồi giả mạo (Key lạ / Crack)!")
             return
         }
         
@@ -1354,18 +1642,54 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
         if let authInfo = resDict["auth_info"] as? [String: Any],
            (authInfo["status"] as? String) == "success" {
             let rawExpire = authInfo["expires_at"] as? String ?? "N/A"
+            let expDate = self.parseExpirationDate(from: rawExpire, authInfo: authInfo)
+            
             self.expireDate = rawExpire
             self.maxDevices = "\(authInfo["max_devices"] as? Int ?? 1)"
-            self.parsedExpirationDate = self.parseExpirationDate(from: rawExpire, authInfo: authInfo)
+            self.parsedExpirationDate = expDate
             self.lastSuccessfulServerCheck = Date()
             self.isInteractionLocked = false
+            self.saveSealedExpiration(expDate, key: expectedKey)
+            self.scheduleExactExpirationTimer()
             
             self.applyHeartbeatCatalog(from: resDict)
             _ = self.checkLocalExpiration()
         } else {
-            let msg = resDict["message"] as? String ?? "Key đã hết hạn hoặc bị thu hồi!"
-            self.kickOutToLogin(reason: msg)
+            let msg = resDict["message"] as? String ?? "Key không tồn tại, đã hết hạn hoặc bị thu hồi!"
+            self.purgeTamperedKeyAndKick(reason: msg)
         }
+    }
+    
+    /// Xác minh phản hồi thật sự thuộc về Key và Device hiện tại (Chống tool crack trả JSON tĩnh)
+    private func verifyServerResponseAuthenticity(resDict: [String: Any], expectedKey: String, expectedDeviceId: String) -> Bool {
+        guard let authInfo = resDict["auth_info"] as? [String: Any] else {
+            // Nếu server trả lỗi hợp lệ (status != success) thì vẫn cho phép đọc message để đá ra
+            return resDict["message"] != nil
+        }
+        
+        // 1. Nếu server có trả về key / device_id đối chiếu, bắt buộc phải khớp 100%
+        if let returnedKey = authInfo["key"] as? String, !returnedKey.isEmpty, returnedKey != expectedKey {
+            return false
+        }
+        if let returnedDevice = authInfo["device_id"] as? String, !returnedDevice.isEmpty, returnedDevice != expectedDeviceId {
+            return false
+        }
+        
+        // 2. Nếu server có trả về server_signature, xác minh chữ ký HMAC
+        if let serverSig = resDict["server_signature"] as? String, !serverSig.isEmpty {
+            let serverTs = (resDict["server_time"] as? Int) ?? (resDict["timestamp"] as? Int) ?? 0
+            let raw = "\(expectedKey):\(expectedDeviceId):\(serverTs)"
+            let symKey = SymmetricKey(data: Data(secretKey.utf8))
+            let mac = HMAC<SHA256>.authenticationCode(for: Data(raw.utf8), using: symKey)
+            let expectedSig = Data(mac).map { String(format: "%02x", $0) }.joined()
+            if serverSig.lowercased() != expectedSig.lowercased() {
+                return false
+            }
+        }
+        
+        // 3. Bắt buộc phải có expires_at hoặc max_devices hợp lệ từ DB thật
+        guard authInfo["expires_at"] != nil else { return false }
+        return true
     }
     
     @MainActor
@@ -1471,6 +1795,17 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
             return
         }
         
+        // Chặn ngay nếu nhập key lạ / ký tự bất thường / crack payload
+        guard SecurityTokenGenerator.isValidKeyFormat(trimmedKey) else {
+            if isAutoLogin {
+                savedKey = ""
+                clearSealedExpiration()
+            } else {
+                self.errorMessage = "Định dạng Key không hợp lệ!"
+            }
+            return
+        }
+        
         if isProxyConfigured() {
             if !isAutoLogin {
                 self.errorMessage = "Phát hiện Proxy. Vui lòng tắt để xác thực!"
@@ -1491,6 +1826,7 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
             "key": trimmedKey,
             "device_id": deviceId,
             "timestamp": timestamp,
+            "nonce": UUID().uuidString,
             "signature": token30s
         ]
         
@@ -1522,6 +1858,7 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
                         response: response,
                         error: error,
                         trimmedKey: trimmedKey,
+                        deviceId: deviceId,
                         isAutoLogin: isAutoLogin
                     )
                 }
@@ -1535,6 +1872,7 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
         response: URLResponse?,
         error: Error?,
         trimmedKey: String,
+        deviceId: String,
         isAutoLogin: Bool
     ) {
         self.isLoading = false
@@ -1576,6 +1914,14 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
             return
         }
         
+        // Chặn tool crack trả về JSON giả mạo hoặc key không khớp
+        guard self.verifyServerResponseAuthenticity(resDict: resDict, expectedKey: trimmedKey, expectedDeviceId: deviceId) else {
+            self.savedKey = ""
+            self.clearSealedExpiration()
+            self.errorMessage = "Xác thực chữ ký máy chủ thất bại! Key không hợp lệ."
+            return
+        }
+        
         self.syncServerClock(from: httpResponse, jsonDict: resDict)
         
         if let authInfo = resDict["auth_info"] as? [String: Any], (authInfo["status"] as? String) == "success" {
@@ -1584,6 +1930,8 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
             let trustedNow = Date().addingTimeInterval(self.serverTimeOffset)
             
             if let expDate = expDate, trustedNow >= expDate {
+                self.savedKey = ""
+                self.clearSealedExpiration()
                 self.errorMessage = "Key đã hết hạn!"
                 return
             }
@@ -1598,6 +1946,7 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
             self.wasKickedOut = false
             self.isInteractionLocked = false
             self.errorMessage = nil
+            self.saveSealedExpiration(expDate, key: trimmedKey)
             self.isAuthorized = true
             
             if let catalogData = try? JSONSerialization.data(withJSONObject: resDict),
@@ -1611,6 +1960,10 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
             
             self.startContinuousMonitoring()
         } else {
+            if isAutoLogin {
+                self.savedKey = ""
+                self.clearSealedExpiration()
+            }
             self.errorMessage = resDict["message"] as? String ?? "Key không hợp lệ hoặc đã hết hạn"
         }
     }
