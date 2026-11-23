@@ -1,6 +1,117 @@
 import SwiftUI
 import UIKit
 import AudioToolbox
+import Darwin
+import MachO
+
+// ==========================================================
+// MARK: - BỘ KIỂM TRA ANTI-CRACK & ANTI-DYLIB CHÍNH XÁC (KHÔNG BẮT NHẦM KÝ IPA)
+// ==========================================================
+struct ContentViewSecurityGuard {
+    /// Kiểm tra môi trường + dylib lạ tiêm từ ngoài bundle của ứng dụng
+    static func evaluate() -> SecurityStatus {
+        // 1. Lấy kết quả kiểm tra chuẩn từ AntiDebug (Debugger, Frida, Hook Libs, Proxy)
+        let baseStatus = AntiDebug.checkEnvironment()
+        if baseStatus != .safe {
+            return baseStatus
+        }
+
+        // 2. Kiểm tra biến môi trường DYLD_INSERT_LIBRARIES (chỉ bắt dylib ngoài thư mục app hoặc dylib hook)
+        if hasUnauthorizedInsertedDylib() {
+            return .crackDetected("DYLIB_INJECT")
+        }
+
+        return .safe
+    }
+
+    private static func hasUnauthorizedInsertedDylib() -> Bool {
+        #if targetEnvironment(simulator)
+        return false
+        #else
+        let appBundlePath = Bundle.main.bundlePath.lowercased()
+
+        // Kiểm tra biến môi trường DYLD_INSERT_LIBRARIES
+        if let envPtr = getenv("DYLD_INSERT_LIBRARIES") {
+            let envValue = String(cString: envPtr).trimmingCharacters(in: .whitespacesAndNewlines)
+            if !envValue.isEmpty {
+                let paths = envValue.split(separator: ":").map { String($0).lowercased() }
+                for path in paths {
+                    // Nếu dylib không nằm trong chính gói .app hiện tại -> chắc chắn bị tiêm từ ngoài
+                    if !path.hasPrefix(appBundlePath) {
+                        return true
+                    }
+                }
+            }
+        }
+
+        // Quét các image đang nạp: chỉ chặn dylib nằm trong thư mục tweak/jailbreak bên ngoài hệ thống iOS chuẩn
+        let forbiddenPrefixes = [
+            "/library/mobilesubstrate",
+            "/usr/lib/tweak",
+            "/var/jb/usr/lib/tweak",
+            "/var/jb/library/mobilesubstrate",
+            "/usr/lib/frida",
+            "/var/jb/usr/lib/frida"
+        ]
+
+        let imageCount = _dyld_image_count()
+        for i in 0..<imageCount {
+            guard let namePtr = _dyld_get_image_name(i) else { continue }
+            let imagePath = String(cString: namePtr).lowercased()
+            for prefix in forbiddenPrefixes {
+                if imagePath.hasPrefix(prefix) {
+                    return true
+                }
+            }
+        }
+
+        return false
+        #endif
+    }
+}
+
+// ==========================================================
+// MARK: - LỚP PHỦ KHÓA CỨNG TOÀN BỘ NÚT KHI PHÁT HIỆN CRACK
+// ==========================================================
+private struct HardCrackLockOverlay: View {
+    let status: SecurityStatus
+
+    var body: some View {
+        ZStack {
+            Color.black.ignoresSafeArea()
+
+            VStack(spacing: 18) {
+                Image(systemName: status == .proxyDetected ? "wifi.exclamationmark" : "lock.slash.fill")
+                    .font(.system(size: 42, weight: .bold))
+                    .foregroundColor(.red)
+                    .shadow(color: .red.opacity(0.85), radius: 10)
+
+                Text(status == .proxyDetected ? "𝐒𝐨𝐯𝐞𝐫𝐞𝐢𝐠𝐧 𝐒𝐨𝐥𝐢𝐭𝐮𝐝𝐞 ........." : "𝐒𝐨𝐯𝐞𝐫𝐞𝐢𝐠𝐧 𝐒𝐨𝐥𝐢𝐭𝐮𝐝𝐞 NO CRACK")
+                    .font(.system(size: 24, weight: .black, design: .serif))
+                    .foregroundColor(.white)
+                    .multilineTextAlignment(.center)
+                    .shadow(color: .red.opacity(0.85), radius: 10)
+
+                Text(status == .proxyDetected
+                     ? "Phát hiện Proxy / VPN bắt gói tin. Toàn bộ chức năng đã bị vô hiệu hóa."
+                     : "Phát hiện can thiệp Dylib / Công cụ Crack. Toàn bộ nút bấm đã bị khóa.")
+                    .font(.system(size: 12.5, weight: .medium, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.75))
+                    .multilineTextAlignment(.center)
+            }
+            .padding(32)
+            .background(Color(red: 0.1, green: 0.0, blue: 0.0).opacity(0.95))
+            .cornerRadius(22)
+            .overlay(
+                RoundedRectangle(cornerRadius: 22)
+                    .stroke(Color.red.opacity(0.85), lineWidth: 1.8)
+            )
+            .padding(26)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture { } // Chặn tuyệt đối mọi thao tác chạm xuyên qua
+    }
+}
 
 // ==========================================================
 // MARK: - BACKGROUND (HIỂN THỊ RÕ ẢNH NỀN TRONG NAVIGATIONSTACK)
@@ -80,15 +191,24 @@ struct ContentView: View {
     @StateObject private var gameCatalog = GameCatalogStore.shared
     @StateObject private var authManager = CustomAuthManager.shared
     @State private var isTabBarHidden = false
+    @State private var guardStatus: SecurityStatus = .safe
 
     @AppStorage(FeatureVisibility.cleanerStorageKey) private var cleanerEnabled = true
     @AppStorage(AppThemePreferences.accentStorageKey) private var accentRaw = AppThemePreferences.defaultAccent.rawValue
 
     @Namespace private var tabAnimation
+    private let guardTimer = Timer.publish(every: 0.8, on: .main, in: .common).autoconnect()
 
     init() {
         let initialTab = AppSection.home.rawValue
         _tabNavigation = State(initialValue: AppTabNavigationState(selectedTab: initialTab))
+    }
+
+    private var isAllControlsLocked: Bool {
+        guardStatus != .safe
+        || !authManager.isAuthorized
+        || authManager.isInteractionLocked
+        || gameCatalog.catalog.resolvedMaintenanceEnabled
     }
 
     var body: some View {
@@ -97,22 +217,52 @@ struct ContentView: View {
 
             Group {
                 if tabNavigation.selectedTab == AppSection.home.rawValue {
-                    DashboardView(cleanerEnabled: $cleanerEnabled)
+                    DashboardView(cleanerEnabled: $cleanerEnabled, isLocked: isAllControlsLocked)
                 } else {
                     GameCatalogView(isTabBarHidden: $isTabBarHidden)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .disabled(isAllControlsLocked)
+            .allowsHitTesting(!isAllControlsLocked)
 
-            if !isTabBarHidden {
+            if !isTabBarHidden && guardStatus == .safe {
                 floatingTabBar
                     .padding(.bottom, 22)
+                    .disabled(isAllControlsLocked)
+                    .allowsHitTesting(!isAllControlsLocked)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                     .zIndex(10)
+            }
+
+            if guardStatus != .safe {
+                HardCrackLockOverlay(status: guardStatus)
+                    .zIndex(9999)
             }
         }
         .tint((AppAccentSpectrum(rawValue: accentRaw) ?? .azure).color)
         .imageScale(.small)
+        .onAppear {
+            enforceGuardCheck()
+        }
+        .onReceive(guardTimer) { _ in
+            enforceGuardCheck()
+        }
+    }
+
+    private func enforceGuardCheck() {
+        let current = ContentViewSecurityGuard.evaluate()
+        if current != guardStatus {
+            guardStatus = current
+        }
+        if current != .safe {
+            isTabBarHidden = true
+            authManager.lockInteractionsImmediately()
+            gameCatalog.disableAllEnabledMods()
+            if case .crackDetected = current {
+                authManager.purgeTamperedKeyAndKick(reason: "Phát hiện can thiệp Dylib / Crack! Toàn bộ chức năng đã bị khóa.")
+            }
+        }
     }
 
     // MARK: TAB BAR (ĐEN TUYỀN + VIỀN TRẮNG NEON)
@@ -144,6 +294,7 @@ struct ContentView: View {
         let isSelected = tabNavigation.selectedTab == tag
 
         return Button {
+            guard !isAllControlsLocked else { return }
             withAnimation(.spring(response: 0.36, dampingFraction: 0.78)) {
                 tabNavigation.select(tag)
             }
@@ -172,6 +323,7 @@ struct ContentView: View {
                 }
             )
         }
+        .disabled(isAllControlsLocked)
         .buttonStyle(.plain)
     }
 }
@@ -187,6 +339,7 @@ private struct DashboardView: View {
     @State private var licenseKeyCopied = false
     @StateObject private var catalogStore = GameCatalogStore.shared
     @Binding var cleanerEnabled: Bool
+    let isLocked: Bool
     @AppStorage(AppThemePreferences.accentStorageKey) private var accentRaw = AppThemePreferences.defaultAccent.rawValue
 
     private static let dateFormatter: DateFormatter = {
@@ -205,7 +358,6 @@ private struct DashboardView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                // Đặt AppBackground trực tiếp bên trong NavigationStack để không bị che
                 AppBackground(urlString: authManager.publicBackgroundURL)
 
                 ScrollView(showsIndicators: false) {
@@ -221,10 +373,20 @@ private struct DashboardView: View {
                     .padding(.horizontal, 16)
                     .padding(.top, 8)
                 }
+                .disabled(isLocked)
+                .allowsHitTesting(!isLocked)
             }
             .toolbar(.hidden, for: .navigationBar)
+            .onChange(of: isLocked) { locked in
+                if locked {
+                    showSettings = false
+                }
+            }
             .sheet(isPresented: $showSettings) {
-                SettingsView().environmentObject(appState)
+                SettingsView()
+                    .environmentObject(appState)
+                    .disabled(isLocked)
+                    .allowsHitTesting(!isLocked)
             }
         }
     }
@@ -250,6 +412,7 @@ private struct DashboardView: View {
             Spacer()
 
             Button {
+                guard !isLocked else { return }
                 UIImpactFeedbackGenerator(style: .light).impactOccurred()
                 showSettings = true
             } label: {
@@ -261,6 +424,7 @@ private struct DashboardView: View {
                     .overlay(Circle().strokeBorder(Color.white.opacity(0.85), lineWidth: 1.1))
                     .shadow(color: .white.opacity(0.25), radius: 6)
             }
+            .disabled(isLocked)
             .buttonStyle(ClassicScaleButtonStyle())
         }
     }
@@ -413,6 +577,7 @@ private struct DashboardView: View {
                     )
 
                     Button {
+                        guard !isLocked else { return }
                         UIPasteboard.general.string = authManager.savedKey
                         withAnimation(.spring(response: 0.25, dampingFraction: 0.75)) { licenseKeyCopied = true }
                         AudioServicesPlaySystemSound(1104)
@@ -439,6 +604,7 @@ private struct DashboardView: View {
                                 .strokeBorder(Color.white.opacity(0.9), lineWidth: 1.1)
                         )
                     }
+                    .disabled(isLocked)
                     .buttonStyle(ClassicScaleButtonStyle())
                 }
             }
@@ -520,6 +686,7 @@ private struct DashboardView: View {
             VStack(spacing: 9) {
                 ForEach(catalogStore.catalog.resolvedSocialLinks.prefix(4), id: \.url) { link in
                     Button {
+                        guard !isLocked else { return }
                         if let url = URL(string: link.url) { UIApplication.shared.open(url) }
                         UIImpactFeedbackGenerator(style: .light).impactOccurred()
                     } label: {
@@ -551,6 +718,7 @@ private struct DashboardView: View {
                                 .strokeBorder(Color.white.opacity(0.55), lineWidth: 1)
                         )
                     }
+                    .disabled(isLocked)
                     .buttonStyle(ClassicScaleButtonStyle())
                 }
             }
@@ -570,6 +738,12 @@ struct NoticeBannerView: View {
     @StateObject private var authManager = CustomAuthManager.shared
     @StateObject private var store = GameCatalogStore.shared
     @State private var showContent = false
+
+    private var isLocked: Bool {
+        ContentViewSecurityGuard.evaluate() != .safe
+        || !authManager.isAuthorized
+        || authManager.isInteractionLocked
+    }
 
     private var noticeMessage: String {
         let msg = store.catalog.noticeMessage.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -639,6 +813,7 @@ struct NoticeBannerView: View {
 
                 VStack(spacing: 10) {
                     Button {
+                        guard !isLocked else { return }
                         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                         onDismiss()
                     } label: {
@@ -652,9 +827,11 @@ struct NoticeBannerView: View {
                             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                             .shadow(color: .white.opacity(0.45), radius: 8)
                     }
+                    .disabled(isLocked)
                     .buttonStyle(ClassicScaleButtonStyle())
 
                     Button {
+                        guard !isLocked else { return }
                         UIImpactFeedbackGenerator(style: .light).impactOccurred()
                         onSnoozeOneHour()
                     } label: {
@@ -675,6 +852,7 @@ struct NoticeBannerView: View {
                                 .strokeBorder(Color.white.opacity(0.65), lineWidth: 1)
                         )
                     }
+                    .disabled(isLocked)
                     .buttonStyle(ClassicScaleButtonStyle())
                 }
             }
@@ -698,6 +876,8 @@ struct NoticeBannerView: View {
             .padding(.horizontal, 24)
             .scaleEffect(showContent ? 1 : 0.88)
             .opacity(showContent ? 1 : 0)
+            .disabled(isLocked)
+            .allowsHitTesting(!isLocked)
         }
         .onAppear {
             withAnimation(.spring(response: 0.36, dampingFraction: 0.8)) {
