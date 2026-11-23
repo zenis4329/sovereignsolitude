@@ -55,7 +55,7 @@ enum KeychainStorage {
     }
 }
 
-// MARK: - HỆ THỐNG BẢO MẬT, CHỐNG CRACK KEY LẠ & CHỐNG DEBUG (CHUẨN XÁC - KHÔNG BẮT NHẦM)
+// MARK: - HỆ THỐNG BẢO MẬT, CHỐNG CRACK KEY LẠ & CHỐNG DEBUG
 enum SecurityStatus: Equatable {
     case safe
     case proxyDetected
@@ -65,22 +65,18 @@ enum SecurityStatus: Equatable {
 struct AntiDebug {
     
     static func checkEnvironment() -> SecurityStatus {
-        // 1. Chặn Debugger gắn trực tiếp vào tiến trình app (Xcode / LLDB / IDA)
         if isDebuggerAttached() {
             return .crackDetected("DEBUGGER")
         }
         
-        // 2. Chặn Frida Server / Frida Gadget hook hàm xác thực
         if isFridaRunning() {
             return .crackDetected("FRIDA")
         }
         
-        // 3. Chỉ chặn các dylib tấn công trực tiếp (hook / dump / bypass SSL), không bắt nhầm dylib ký IPA
         if hasMaliciousHookLibraries() {
             return .crackDetected("HOOK_LIB")
         }
         
-        // 4. Chặn Proxy / VPN bắt gói tin (Charles, Proxyman, mitmproxy, Shadowrocket...)
         if isProxyEnabled() {
             return .proxyDetected
         }
@@ -794,6 +790,18 @@ struct AuthEntryView: View {
     @State private var splashTimer: Timer?
     @State private var autoLoginTriggered = false
     
+    /// Lọc ẩn hoàn toàn thông báo liên quan đến Proxy khỏi giao diện nhập key
+    private var visibleStatusMessage: String? {
+        guard let msg = authManager.errorMessage?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !msg.isEmpty else {
+            return nil
+        }
+        if msg.localizedCaseInsensitiveContains("proxy") {
+            return nil
+        }
+        return msg
+    }
+    
     var body: some View {
         ZStack {
             SecureRemoteImage(urlString: authManager.publicBackgroundURL, placeholder: Image(systemName: "photo"))
@@ -948,10 +956,10 @@ struct AuthEntryView: View {
                             }
                             
                             HStack {
-                                Circle().fill(authManager.errorMessage != nil ? Color.red : Color(hex: "#00f2fe")).frame(width: 6, height: 6)
-                                Text(authManager.errorMessage ?? "Trạng thái: Sẵn sàng xác thực...")
+                                Circle().fill(visibleStatusMessage != nil ? Color.red : Color(hex: "#00f2fe")).frame(width: 6, height: 6)
+                                Text(visibleStatusMessage ?? "Trạng thái: Sẵn sàng xác thực...")
                                     .font(.system(size: 12, weight: .medium, design: .monospaced))
-                                    .foregroundColor(authManager.errorMessage != nil ? Color(hex: "#ff6b6b") : .white)
+                                    .foregroundColor(visibleStatusMessage != nil ? Color(hex: "#ff6b6b") : .white)
                                     .shadow(color: .white.opacity(0.5), radius: 3)
                                 Spacer()
                             }
@@ -1040,7 +1048,7 @@ struct AuthEntryView: View {
             keyInput = authManager.savedKey
             authManager.fetchPublicConfig()
             
-            if authManager.wasKickedOut || authManager.errorMessage != nil {
+            if authManager.wasKickedOut || visibleStatusMessage != nil {
                 isSplashActive = false
             } else {
                 runSplashScreen()
@@ -1397,7 +1405,7 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
         kickOutToLogin(reason: reason)
     }
     
-    func kickOutToLogin(reason: String) {
+    func kickOutToLogin(reason: String, silent: Bool = false) {
         let execute = {
             MainActor.assumeIsolated {
                 self.isInteractionLocked = true
@@ -1411,12 +1419,14 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
                 self.parsedExpirationDate = nil
                 self.lastSuccessfulServerCheck = nil
                 self.consecutiveFailures = 0
-                self.wasKickedOut = true
-                self.errorMessage = reason
+                self.wasKickedOut = !silent
+                self.errorMessage = silent ? nil : reason
                 self.isLoading = false
                 self.isAuthorized = false
                 
-                UINotificationFeedbackGenerator().notificationOccurred(.error)
+                if !silent {
+                    UINotificationFeedbackGenerator().notificationOccurred(.error)
+                }
             }
         }
         
@@ -1450,7 +1460,7 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
         guard isAuthorized else { return }
         
         if isProxyConfigured() {
-            kickOutToLogin(reason: "Phát hiện Proxy! Phiên truy cập đã bị khóa.")
+            kickOutToLogin(reason: "", silent: true)
             return
         }
         
@@ -1470,7 +1480,7 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
         guard isAuthorized else { return }
         
         if isProxyConfigured() {
-            kickOutToLogin(reason: "Phát hiện Proxy! Phiên truy cập đã bị khóa.")
+            kickOutToLogin(reason: "", silent: true)
             return
         }
         
@@ -1755,9 +1765,6 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
         }
         
         if isProxyConfigured() {
-            if !isAutoLogin {
-                self.errorMessage = "Phát hiện Proxy. Vui lòng tắt để xác thực!"
-            }
             return
         }
         
