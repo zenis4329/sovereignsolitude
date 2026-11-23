@@ -55,7 +55,7 @@ enum KeychainStorage {
     }
 }
 
-// MARK: - HỆ THỐNG BẢO MẬT, CHỐNG CRACK KEY LẠ & CHỐNG DEBUG
+// MARK: - HỆ THỐNG BẢO MẬT, CHỐNG CRACK KEY LẠ & CHỐNG DEBUG (CHUẨN XÁC - KHÔNG BẮT NHẦM)
 enum SecurityStatus: Equatable {
     case safe
     case proxyDetected
@@ -65,21 +65,26 @@ enum SecurityStatus: Equatable {
 struct AntiDebug {
     
     static func checkEnvironment() -> SecurityStatus {
+        // 1. Chặn Debugger gắn trực tiếp vào tiến trình app (Xcode / LLDB / IDA)
         if isDebuggerAttached() {
             return .crackDetected("DEBUGGER")
         }
+        
+        // 2. Chặn Frida Server / Frida Gadget hook hàm xác thực
         if isFridaRunning() {
             return .crackDetected("FRIDA")
         }
-        if hasInjectedLibraries() {
-            return .crackDetected("INJECTION")
+        
+        // 3. Chỉ chặn các dylib tấn công trực tiếp (hook / dump / bypass SSL), không bắt nhầm dylib ký IPA
+        if hasMaliciousHookLibraries() {
+            return .crackDetected("HOOK_LIB")
         }
-        if isJailbroken() {
-            return .crackDetected("JAILBREAK")
-        }
+        
+        // 4. Chặn Proxy / VPN bắt gói tin (Charles, Proxyman, mitmproxy, Shadowrocket...)
         if isProxyEnabled() {
             return .proxyDetected
         }
+        
         return .safe
     }
     
@@ -101,22 +106,25 @@ struct AntiDebug {
         return (info.kp_proc.p_flag & P_TRACED) != 0
     }
     
-    static func hasInjectedLibraries() -> Bool {
+    static func hasMaliciousHookLibraries() -> Bool {
         #if targetEnvironment(simulator)
         return false
         #else
-        let suspiciousLibs = [
-            "substrate", "substitute", "ellekit", "frida", "cycript",
-            "sslkillswitch", "shadow", "liberty", "flyjb", "choicy",
-            "flex", "reveal", "cephei", "rocketbootstrap", "tweakinject",
-            "libhooker", "fishhook", "crack", "bypass", "keygen"
+        let hookLibs = [
+            "frida-agent",
+            "fridagadget",
+            "cycript",
+            "sslkillswitch",
+            "flexing",
+            "revealserver",
+            "libflex"
         ]
         
         let imageCount = _dyld_image_count()
         for i in 0..<imageCount {
             if let imageNamePtr = _dyld_get_image_name(i) {
                 let imageName = String(cString: imageNamePtr).lowercased()
-                for lib in suspiciousLibs {
+                for lib in hookLibs {
                     if imageName.contains(lib) {
                         return true
                     }
@@ -124,38 +132,6 @@ struct AntiDebug {
             }
         }
         return false
-        #endif
-    }
-    
-    static func isJailbroken() -> Bool {
-        #if targetEnvironment(simulator)
-        return false
-        #else
-        let paths = [
-            "/Applications/Cydia.app",
-            "/Applications/Sileo.app",
-            "/Applications/Zebra.app",
-            "/Library/MobileSubstrate/MobileSubstrate.dylib",
-            "/usr/lib/libhooker.dylib",
-            "/usr/lib/libsubstitute.dylib",
-            "/var/jb",
-            "/bin/bash",
-            "/usr/sbin/sshd",
-            "/etc/apt",
-            "/private/var/lib/apt/",
-            "/usr/bin/ssh"
-        ]
-        for path in paths {
-            if FileManager.default.fileExists(atPath: path) { return true }
-        }
-        let stringToWrite = "jailbreak_test"
-        do {
-            try stringToWrite.write(toFile: "/private/jailbreak.txt", atomically: true, encoding: .utf8)
-            try FileManager.default.removeItem(atPath: "/private/jailbreak.txt")
-            return true
-        } catch {
-            return false
-        }
         #endif
     }
     
@@ -178,12 +154,6 @@ struct AntiDebug {
             close(socketFD)
             if result == 0 { return true }
         }
-        
-        let fridaPaths = ["/usr/sbin/frida-server", "/usr/lib/frida/frida-agent.dylib"]
-        for path in fridaPaths {
-            if FileManager.default.fileExists(atPath: path) { return true }
-        }
-        
         return false
     }
 }
@@ -1236,7 +1206,6 @@ class CustomAuthManager: NSObject, ObservableObject, URLSessionDelegate {
         return AntiDebug.isProxyEnabled()
     }
     
-    /// Gọi hàm tắt toàn bộ mod an toàn trên MainActor từ mọi luồng (khắc phục hoàn toàn lỗi MainActor isolation)
     private func disableAllModsSafely() {
         if Thread.isMainThread {
             MainActor.assumeIsolated {
