@@ -335,7 +335,10 @@ struct GameCatalogView: View {
     @AppStorage("isAntiBanFakeEnabled") private var isAntiBanFakeEnabled: Bool = true
 
     private var isSessionActive: Bool {
-        authManager.isAuthorized && !authManager.isInteractionLocked && !store.catalog.resolvedMaintenanceEnabled
+        authManager.isAuthorized
+        && !authManager.isInteractionLocked
+        && !store.catalog.resolvedMaintenanceEnabled
+        && AntiDebug.checkEnvironment() == .safe
     }
 
     private var allEnabledItems: [GameCatalogItem] {
@@ -362,9 +365,16 @@ struct GameCatalogView: View {
             }
             .toolbar(.hidden, for: .navigationBar)
             .onAppear {
+                authManager.enforceImmediateOfflineExpirationCheck()
                 store.rememberCatalogItems()
                 withAnimation(.linear(duration: 14).repeatForever(autoreverses: false)) { ringRotate = 360 }
-                if !authManager.isAuthorized || store.catalog.resolvedMaintenanceEnabled {
+                if !isSessionActive {
+                    forceDisableAllMods(playSound: false)
+                }
+            }
+            .onChange(of: isSessionActive) { active in
+                if !active {
+                    isTabBarHidden = false
                     forceDisableAllMods(playSound: false)
                 }
             }
@@ -651,7 +661,12 @@ private struct GameDetailView: View {
 
     private var catalog: GameCatalog { store.catalog }
     private var game: GameCatalogGame? { catalog.games.first(where: { $0.id == gameID }) }
-    private var isSessionActive: Bool { authManager.isAuthorized && !authManager.isInteractionLocked && !store.catalog.resolvedMaintenanceEnabled }
+    private var isSessionActive: Bool {
+        authManager.isAuthorized
+        && !authManager.isInteractionLocked
+        && !store.catalog.resolvedMaintenanceEnabled
+        && AntiDebug.checkEnvironment() == .safe
+    }
 
     private var items: [GameCatalogItem] {
         (game?.items ?? [])
@@ -689,8 +704,9 @@ private struct GameDetailView: View {
         }
         .disabled(!isSessionActive).allowsHitTesting(isSessionActive).navigationBarHidden(true)
         .onAppear {
+            authManager.enforceImmediateOfflineExpirationCheck()
             store.rememberCatalogItems()
-            if store.catalog.resolvedMaintenanceEnabled {
+            if !isSessionActive {
                 forceDisableAllAndDismiss()
                 return
             }
@@ -698,6 +714,7 @@ private struct GameDetailView: View {
             if !availableTabs.contains(where: { $0.id == selectedTabID }) { selectedTabID = availableTabs.first?.id ?? "aim" }
         }
         .onDisappear { withAnimation { isTabBarHidden = false } }
+        .onChange(of: isSessionActive) { active in if !active { forceDisableAllAndDismiss() } }
         .onChange(of: authManager.isAuthorized) { a in if !a { forceDisableAllAndDismiss() } }
         .onChange(of: store.catalog.resolvedMaintenanceEnabled) { m in if m { forceDisableAllAndDismiss() } }
     }
@@ -858,7 +875,11 @@ private struct GameDetailView: View {
 
     private var launchButton: some View {
         Button {
-            guard isSessionActive else { return }
+            authManager.enforceImmediateOfflineExpirationCheck()
+            guard isSessionActive else {
+                forceDisableAllAndDismiss()
+                return
+            }
             iPhoneHaptics.shared.playLaunch()
             let raw = (game?.launchURL ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             if let url = URL(string: raw), !raw.isEmpty { UIApplication.shared.open(url) }
@@ -892,7 +913,12 @@ private struct ModernModRow: View {
     @State private var burst = false
     @State private var iconScale: CGFloat = 1.0
 
-    private var isSessionActive: Bool { authManager.isAuthorized && !authManager.isInteractionLocked && !store.catalog.resolvedMaintenanceEnabled }
+    private var isSessionActive: Bool {
+        authManager.isAuthorized
+        && !authManager.isInteractionLocked
+        && !store.catalog.resolvedMaintenanceEnabled
+        && AntiDebug.checkEnvironment() == .safe
+    }
     private var isVip: Bool { item.name.localizedCaseInsensitiveContains("VIP") || item.name.localizedCaseInsensitiveContains("AIM HEAD") || item.name.localizedCaseInsensitiveContains("CAN CHECK") }
     private var badgeLabel: String {
         let custom = (item.badge ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
@@ -991,7 +1017,16 @@ private struct ModernModRow: View {
         )
         .opacity(hasLink ? 1 : 0.5)
         .animation(.spring(response: 0.25, dampingFraction: 0.8), value: isOn)
-        .onChange(of: isSessionActive) { a in if !a { showDetailSheet = false; showErrorAlert = false } }
+        .onChange(of: isSessionActive) { active in
+            if !active {
+                showDetailSheet = false
+                showErrorAlert = false
+                if localToggle { localToggle = false }
+                if store.isMultiItemOn(item: item) {
+                    Task { await store.setMultiEnabled(false, item: item) }
+                }
+            }
+        }
         .sheet(isPresented: $showDetailSheet) { ModDetailSheet(item: item) }
         .alert("Lỗi kích hoạt Mod", isPresented: $showErrorAlert) { Button("OK", role: .cancel) { } } message: { Text(errorMessage) }
     }
@@ -999,17 +1034,46 @@ private struct ModernModRow: View {
     private func handleToggle(_ newVal: Bool) {
         guard !store.isMultiItemBusy(item: item) else { localToggle = store.isMultiItemOn(item: item); return }
         if newVal {
-            guard isSessionActive else { localToggle = false; return }
+            // 1. Kiểm tra ngay trước khi kích hoạt mod
+            authManager.enforceImmediateOfflineExpirationCheck()
+            guard isSessionActive else {
+                localToggle = false
+                store.disableAllEnabledMods()
+                return
+            }
+
             iPhoneHaptics.shared.playTickOn()
             withAnimation(.spring(response: 0.3, dampingFraction: 0.4)) { iconScale = 1.15 }
             withAnimation(.easeOut(duration: 0.45)) { burst = true }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { withAnimation(.spring(response: 0.35, dampingFraction: 0.6)) { iconScale = 1.0 } }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { var tx = Transaction(); tx.disablesAnimations = true; withTransaction(tx) { burst = false } }
+            
             Task {
                 await store.setMultiEnabled(true, item: item)
-                if !authManager.isAuthorized || authManager.isInteractionLocked || store.catalog.resolvedMaintenanceEnabled { await store.setMultiEnabled(false, item: item); return }
-                if let error = store.lastError { await MainActor.run { errorMessage = error; showErrorAlert = true } }
-                else if hasGuide { await MainActor.run { showDetailSheet = true } }
+                
+                // 2. Hậu kiểm sau khi nạp mod: nếu key vừa hết hạn hoặc phiên bị khóa trong lúc nạp -> tắt ngay
+                await MainActor.run {
+                    authManager.enforceImmediateOfflineExpirationCheck()
+                }
+                if !isSessionActive {
+                    await store.setMultiEnabled(false, item: item)
+                    await MainActor.run {
+                        localToggle = false
+                        store.disableAllEnabledMods()
+                    }
+                    return
+                }
+                
+                if let error = store.lastError {
+                    await MainActor.run {
+                        errorMessage = error
+                        showErrorAlert = true
+                    }
+                } else if hasGuide {
+                    await MainActor.run {
+                        showDetailSheet = true
+                    }
+                }
             }
         } else {
             iPhoneHaptics.shared.playTickOff()
@@ -1093,6 +1157,7 @@ struct ModDetailSheet: View {
             .navigationTitle(item.name).navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .navigationBarTrailing) { Button("Đóng") { iPhoneHaptics.shared.playTap(); dismiss() }.foregroundColor(.white).font(.headline.bold()) } }
             .onChange(of: authManager.isAuthorized) { a in if !a { dismiss() } }
+            .onChange(of: authManager.isInteractionLocked) { locked in if locked { dismiss() } }
             .onChange(of: store.catalog.resolvedMaintenanceEnabled) { m in if m { dismiss() } }
         }
     }
